@@ -1,0 +1,6 @@
+# Company data and keys never go in git: the encrypted feed ships as a release asset.
+feed.enc.json
+*.feed.json
+.batch-key
+node_modules/
+.wrangler/
