@@ -16,11 +16,10 @@ Not an official OCCaP service: always confirm dates from the OCCaP mail.
   forward the link, so the feed is "not public", not secret.
 - **Personal data stays on the device** (IndexedDB, with a localStorage fallback) and leaves it only as
   ciphertext: in a backup file you export (PBKDF2-SHA256, 600,000 rounds, then AES-GCM), or, if live sync is on,
-  as an AES-GCM blob on the relay. The sync code is never sent: the relay lookup id and the encryption key are
-  derived from it with HKDF under different labels, so the relay can find a blob but cannot read it.
+  as an AES-GCM file in a secret gist in the student's own GitHub account (see "Live sync" below).
 - **Nothing identifying is collected.** No accounts, cookies, analytics or telemetry; no third-party script,
   style or font at runtime. pdf.js and the QR generator are vendored (`vendor/`) and pinned with SRI, and a
-  Content-Security-Policy allows only this origin, the relay, `blob:` workers and `data:` images.
+  Content-Security-Policy allows only this origin, the GitHub API and gist hosts for sync, `blob:` workers and `data:` images.
 - **Only your own rows are kept from a shortlist.** A pasted tab is analysed in memory and the text box is
   cleared. What is stored: the schedule rows (company, date, time, mode) and, per shortlist, whether you are on
   it. Other students' names, emails and SR numbers are never stored.
@@ -39,8 +38,7 @@ Not an official OCCaP service: always confirm dates from the OCCaP mail.
 | `manifest.webmanifest`, `icons/` | Install metadata and the "HQ" icon |
 | `vendor/` | pdf.js 4.10.38 and qrcode-generator 2.0.4, unmodified; licences in `vendor/LICENSES.txt` |
 | `tools/publish.mjs` | Encrypts a feed file into `feed.enc.json` and, with `--upload`, ships it as the `feed` release asset |
-| `relay/` | Optional sync relay: Cloudflare Worker + D1 (see `relay/README.md`) |
-| `test.mjs` | `node test.mjs`: unit tests, crypto, merge, relay handler, publisher, CSP/SRI checks |
+| `test.mjs` | `node test.mjs`: unit tests, crypto, merge, gist sync client (against a fake fetch), publisher, CSP/SRI checks |
 | `.github/workflows/pages.yml` | Tests, then deploys the code plus the encrypted feed to GitHub Pages |
 
 ## Develop
@@ -71,11 +69,25 @@ Feed shape: `{companies: [{slug, company, deadline, max_roles, poc[], ctc, locat
 process[], info, roles: [{title, track, ctc, location, eligibility}]}], jds: [{id, label, text}], skills: [],
 dsa: [{problem, topic, difficulty, pattern}]}`.
 
-## Live sync (optional)
+## Live sync (GitHub Gist)
 
-Without a relay the app offers encrypted backup export and import, which is also how to move data between
-devices. To turn on live sync, deploy `relay/` (free tier, one Cloudflare login; see `relay/README.md`), then set
-the repository variable `RELAY_URL` and re-run the Pages workflow.
+Nothing to deploy: each student syncs through one secret gist in their own GitHub account, and the site talks
+only to `api.github.com` (plus `gist.githubusercontent.com` when the file is over 1 MB and the API truncates it).
+
+- **Token**: a classic personal access token with only the `gist` scope, pasted in Settings and kept on the
+  device. The app checks `x-oauth-scopes` on `GET /user` and refuses tokens that also carry `repo`, `admin`,
+  `delete_repo`, `workflow` or `user` scopes. (GitHub's device sign-in flow has no CORS, so a static site cannot use it.)
+- **Data**: the gist holds one file, `hq.enc` = base64url(IV + AES-GCM of the gzipped state), described as
+  "Placement HQ sync (encrypted)". The key comes from a 16-byte sync code via HKDF (`hq-sync-key`); GitHub
+  never sees the code.
+- **Rounds**: `GET /gists/{id}` with `If-None-Match` (a 304 is free against the rate limit), decrypt, merge
+  (per-record last-writer-wins with tombstones), and `PATCH` back when the gist lacks something this device has.
+  A change triggers a round 2 s later; the app also polls on focus and every 60 s while visible, one request at a
+  time. Gists have no compare-and-swap; merging on every pull makes devices converge without losing records.
+- **Errors**: 401 stops syncing until a new token is pasted; 404 offers to create a new gist; a 403/429 with no
+  requests left waits until `x-ratelimit-reset`.
+- **Pairing**: the QR in Settings opens `#k=<batch>&sync=<code>&g=<gist id>&t=<token>`; the fragment never
+  reaches a server and is removed from the address bar. The QR is a credential: it is for the student's own devices.
 
 ## Install on a phone
 

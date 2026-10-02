@@ -9,7 +9,6 @@ import { tmpdir } from 'node:os';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import * as A from './core.js';
-import relay from './relay/worker.js';
 
 const ROOT = dirname(fileURLToPath(import.meta.url)), rd = f => readFileSync(join(ROOT, f));
 const NOW = Date.parse('2026-09-23T09:00:00+05:30');
@@ -327,18 +326,11 @@ test('crypto: feed round trip, wrong key, tampering', async () => {
   assert.notEqual(g.ct, f.ct, 'fresh salt and IV each time');
 });
 
-test('crypto: sync id and key are separate HKDF outputs', async () => {
-  const code = A.rnd(16), s = await A.syncIds(code), s2 = await A.syncIds(code), other = await A.syncIds(A.rnd(16));
-  assert.match(s.id, /^[0-9a-f]{64}$/);
-  assert.equal(s.id, s2.id, 'deterministic'); assert.notEqual(s.id, other.id);
-  const none = new Uint8Array(0), idBits = await A.hkdfBits(code, none, 'hq-sync-id'), keyBits = await A.hkdfBits(code, none, 'hq-sync-key');
-  assert.equal(A.hex(idBits), s.id); assert.notEqual(A.hex(keyBits), s.id, 'different labels, different outputs');
-  const blob = await A.seal(s.key, { apps: { x: 1 } });
-  assert.deepEqual(await A.open(s2.key, blob), { apps: { x: 1 } });
-  await assert.rejects(A.open(other.key, blob), 'another code cannot read it');
-  const fromId = await crypto.subtle.importKey('raw', idBits, 'AES-GCM', false, ['decrypt']);
-  await assert.rejects(A.open(fromId, blob), 'the relay id is not the key');
-  assert.ok(!blob.includes(s.id));
+test('crypto: the sync key comes from the code alone', async () => {
+  const code = A.rnd(16), blob = await A.seal(await A.syncKey(code), { apps: { x: 1 } });
+  assert.deepEqual(await A.open(await A.syncKey(code.slice()), blob), { apps: { x: 1 } }, 'same code, same key');
+  await assert.rejects(A.open(await A.syncKey(A.rnd(16)), blob), 'another code cannot read it');
+  assert.match(blob, /^[A-Za-z0-9_-]+$/, 'base64url ciphertext only');
 });
 
 test('crypto: passphrase backup (PBKDF2 600k), base32 and base64url', async () => {
@@ -356,70 +348,100 @@ test('crypto: passphrase backup (PBKDF2 600k), base32 and base64url', async () =
   assert.deepEqual(A.unb64u(A.b64u(big)), big, 'chunked base64url');
 });
 
-// In-memory D1: just the four statements relay/worker.js runs.
-function d1() {
-  const t = new Map();
-  const run = (sql, a) => {
-    if (sql.startsWith('SELECT')) return t.has(a[0]) ? Object.assign({}, t.get(a[0])) : null;
-    if (sql.startsWith('UPDATE')) {
-      const [data, wcount, wstart, id, base] = a, r = t.get(id);
-      if (!r || r.ver !== base) return { meta: { changes: 0 } };
-      Object.assign(r, { ver: r.ver + 1, data, wcount, wstart });
-      return { meta: { changes: 1 } };
-    }
-    if (sql.startsWith('INSERT')) {
-      const [id, data, wstart] = a;
-      if (t.has(id)) return { meta: { changes: 0 } };
-      t.set(id, { id, ver: 1, data, wcount: 1, wstart });
-      return { meta: { changes: 1 } };
-    }
-    throw new Error('unexpected SQL ' + sql);
+// A fake api.github.com with just what the gist client calls: /user scopes, gists with ETags and 304s, the
+// truncation of large files (then served from raw_url), 401 for other tokens and a switchable rate limit.
+function fakeGitHub({ scopes = 'gist', token = 'ghp_test' } = {}) {
+  const gists = new Map(), raw = new Map(), gh = { calls: [], limited: 0, truncate: false };
+  const res = (status, body, headers = {}) => new Response(body === undefined ? null : JSON.stringify(body), { status, headers });
+  const files = id => {
+    const g = gists.get(id), raw_url = `https://gist.githubusercontent.com/someone/${id}/raw/${g.rev}/hq.enc`;
+    raw.set(raw_url, g.content);
+    return { 'hq.enc': gh.truncate ? { content: g.content.slice(0, 10), truncated: true, raw_url } : { content: g.content, truncated: false, raw_url } };
   };
-  return { t, prepare: sql => ({ bind: (...a) => ({ first: async () => run(sql, a), run: async () => run(sql, a) }) }) };
+  gh.fetch = async (url, o = {}) => {
+    const m = o.method || 'GET', h = o.headers || {}, body = o.body && JSON.parse(o.body);
+    gh.calls.push({ m, url, h, body });
+    if (raw.has(url)) return new Response(raw.get(url));
+    if (h.authorization !== 'Bearer ' + token) return res(401, { message: 'Bad credentials' });
+    if (gh.limited) return res(403, { message: 'API rate limit exceeded' }, { 'x-ratelimit-remaining': '0', 'x-ratelimit-reset': String(gh.limited) });
+    if (url === 'https://api.github.com/user') return res(200, { login: 'someone' }, { 'x-oauth-scopes': scopes });
+    if (url === 'https://api.github.com/gists' && m === 'POST') {
+      const id = 'g' + (gists.size + 1);
+      gists.set(id, { rev: 1, content: body.files['hq.enc'].content });
+      return res(201, { id, files: files(id) }, { etag: `"${id}-1"` });
+    }
+    const id = (/^https:\/\/api\.github\.com\/gists\/(\w+)$/.exec(url) || [])[1], g = gists.get(id);
+    if (!g) return res(404, { message: 'Not Found' });
+    if (m === 'DELETE') { gists.delete(id); return res(204); }
+    if (m === 'PATCH') Object.assign(g, { rev: g.rev + 1, content: body.files['hq.enc'].content });
+    const etag = `"${id}-${g.rev}"`;
+    return m === 'GET' && h['if-none-match'] === etag ? res(304, undefined, { etag }) : res(200, { id, files: files(id) }, { etag });
+  };
+  return gh;
 }
 
-test('relay: 200/304/404/409/413/429, CORS', async () => {
-  const env = { DB: d1(), ORIGIN: 'https://hq.example.org' }, id = 'a'.repeat(64), id2 = 'b'.repeat(64);
-  const call = (method, path, { body, headers = {}, origin = env.ORIGIN } = {}) => relay.fetch(new Request('https://relay.example.org' + path,
-    { method, body: body === undefined ? undefined : typeof body === 'string' ? body : JSON.stringify(body), headers: Object.assign(origin ? { origin } : {}, headers) }), env);
-  let r = await call('GET', '/v1/b/' + id);
-  assert.equal(r.status, 404); assert.equal(r.headers.get('access-control-allow-origin'), env.ORIGIN);
-  r = await call('PUT', '/v1/b/' + id, { body: { base: 0, data: 'AAAA' } });
-  assert.equal(r.status, 200); assert.deepEqual(await r.json(), { ver: 1 });
-  r = await call('GET', '/v1/b/' + id);
-  assert.equal(r.status, 200); assert.deepEqual(await r.json(), { ver: 1, data: 'AAAA' }); assert.equal(r.headers.get('etag'), '"1"');
-  assert.equal((await call('GET', '/v1/b/' + id, { headers: { 'if-none-match': '1' } })).status, 304);
-  r = await call('GET', '/v1/b/' + id, { headers: { 'if-none-match': '"1"' } });
-  assert.equal(r.status, 304); assert.equal(r.headers.get('access-control-allow-origin'), env.ORIGIN, 'CORS on 304 too');
-  assert.equal((await call('GET', '/v1/b/' + id, { headers: { 'if-none-match': '0' } })).status, 200);
-  r = await call('PUT', '/v1/b/' + id, { body: { base: 0, data: 'BBBB' } });
-  assert.equal(r.status, 409); assert.deepEqual(await r.json(), { ver: 1, data: 'AAAA' }, 'create race: the stored blob comes back');
-  assert.equal((await call('PUT', '/v1/b/' + id, { body: { base: 1, data: 'CCCC' } })).status, 200);
-  r = await call('PUT', '/v1/b/' + id, { body: { base: 1, data: 'DDDD' } });
-  assert.equal(r.status, 409); assert.deepEqual(await r.json(), { ver: 2, data: 'CCCC' }, 'stale base');
-  assert.equal((await call('PUT', '/v1/b/' + id2, { body: { base: 3, data: 'AAAA' } })).status, 409, 'no row and base > 0');
-  assert.equal((await call('PUT', '/v1/b/' + id, { body: { base: 2, data: 'A'.repeat(256 * 1024 + 1) } })).status, 413);
-  assert.equal((await call('PUT', '/v1/b/' + id, { body: { base: 2, data: 'A'.repeat(256 * 1024) } })).status, 200, '256 KB exactly is fine');
-  assert.equal((await call('PUT', '/v1/b/' + id, { body: '{nope' })).status, 400);
-  assert.equal((await call('PUT', '/v1/b/' + id, { body: { base: 3, data: 'not base64!' } })).status, 400);
-  assert.equal((await call('GET', '/v1/b/' + id.toUpperCase())).status, 404, 'lower-case hex ids only');
-  assert.equal((await call('GET', '/v1/b/abc')).status, 404);
-  assert.equal((await call('DELETE', '/v1/b/' + id)).status, 405);
-  // rate limit: 120 writes an hour per id
-  const id3 = 'c'.repeat(64);
-  for (let v = 0; v < 120; v++) assert.equal((await call('PUT', '/v1/b/' + id3, { body: { base: v, data: 'AAAA' } })).status, 200);
-  r = await call('PUT', '/v1/b/' + id3, { body: { base: 120, data: 'AAAA' } });
-  assert.equal(r.status, 429); assert.ok(+r.headers.get('retry-after') > 0);
-  env.DB.t.get(id3).wstart -= 3600000;
-  assert.equal((await call('PUT', '/v1/b/' + id3, { body: { base: 120, data: 'AAAA' } })).status, 200, 'new window');
-  // CORS
-  r = await call('OPTIONS', '/v1/b/' + id);
-  assert.equal(r.status, 204); assert.match(r.headers.get('access-control-allow-methods'), /PUT/); assert.match(r.headers.get('access-control-allow-headers'), /if-none-match/);
-  r = await call('OPTIONS', '/v1/b/' + id, { origin: 'https://evil.example.com' });
-  assert.equal(r.status, 403); assert.equal(r.headers.get('access-control-allow-origin'), null);
-  assert.equal((await call('GET', '/v1/b/' + id, { origin: 'https://evil.example.com' })).status, 403);
-  r = await call('GET', '/v1/b/' + id, { origin: null });
-  assert.equal(r.status, 200); assert.equal(r.headers.get('access-control-allow-origin'), null, 'no Origin (curl): served without CORS headers');
+test('gist client: token scope check, create, pull 200/304, truncated file via raw_url, 401, 404', async () => {
+  for (const [scopes, ok] of [['gist', true], ['gist, read:org', true], ['gist, repo', false], ['public_repo, gist', false], ['admin:org, gist', false],
+    ['delete_repo, gist', false], ['gist, workflow', false], ['gist, user', false], ['repo', false], ['', false]]) {
+    const p = A.gistClient('ghp_test', fakeGitHub({ scopes }).fetch).check();
+    if (ok) await p; else await assert.rejects(p, 'refused: ' + scopes);
+  }
+  await assert.rejects(A.gistClient('ghp_test', fakeGitHub({ scopes: 'gist, repo' }).fetch).check(), /also use repo/, 'names the broad scope');
+  await assert.rejects(A.gistClient('ghp_test', fakeGitHub({ scopes: '' }).fetch).check(), /only the gist scope/, 'fine-grained or scopeless token');
+  await assert.rejects(A.gistClient('revoked', fakeGitHub().fetch).check(), e => e.status === 401);
+
+  const gh = fakeGitHub(), gc = A.gistClient('ghp_test', gh.fetch), key = await A.syncKey(A.rnd(16));
+  const st = { apps: { 'acme::HPC Eng': { status: 'offer', notes: 'private note', u: 1, d: 'a' } }, dsa: {}, tomb: {} };
+  const { id, etag } = await gc.create(await A.seal(key, st)), post = gh.calls.at(-1);
+  assert.deepEqual([post.m, post.body.public, post.body.description, Object.keys(post.body.files)], ['POST', false, 'Placement HQ sync (encrypted)', ['hq.enc']]);
+  assert.ok(!/private|offer|acme/i.test(JSON.stringify(post.body)), 'only ciphertext goes to GitHub');
+  assert.equal(post.h.authorization, 'Bearer ghp_test');
+  const got = await gc.get(id, '');
+  assert.deepEqual(await A.open(key, got.content), st); assert.equal(got.etag, etag);
+  assert.equal(await gc.get(id, got.etag), null, '304: unchanged'); assert.equal(gh.calls.at(-1).h['if-none-match'], got.etag);
+  gh.truncate = true;
+  assert.deepEqual(await A.open(key, (await gc.get(id, '')).content), st, 'a truncated file is read from raw_url');
+  assert.match(gh.calls.at(-1).url, /^https:\/\/gist\.githubusercontent\.com\//); assert.equal(gh.calls.at(-1).h.authorization, undefined, 'no token to the raw host');
+  await assert.rejects(A.gistClient('revoked', gh.fetch).get(id, ''), e => e.status === 401 && /did not accept/.test(e.message));
+  await gc.del(id);
+  await assert.rejects(gc.get(id, etag), e => e.status === 404, 'deleted gist');
+});
+
+test('gist sync: pull, merge, push; concurrent edits converge; wrong code; rate-limit backoff', async () => {
+  const gh = fakeGitHub(), key = await A.syncKey(A.rnd(16)), a = A.gistClient('ghp_test', gh.fetch), b = A.gistClient('ghp_test', gh.fetch);
+  let sa = { apps: { x: { status: 'applied', u: 10, d: 'a' } }, dsa: {}, tomb: {} };
+  let sb = { apps: { x: { status: 'offer', u: 5, d: 'b' }, y: { status: 'applied', u: 3, d: 'b' } }, dsa: {}, tomb: {} };
+  const { id, etag } = await a.create(await A.seal(key, sa));
+  let rb = await A.gistSync(b, id, '', key, sb, false, NOW);
+  assert.deepEqual([rb.pulled, rb.pushed, rb.state.apps.x.status, rb.state.apps.y.status], [true, true, 'applied', 'applied'], 'join: older x loses; y is new to the gist, so b writes');
+  let ra = await A.gistSync(a, id, etag, key, sa, false, NOW);
+  assert.deepEqual([ra.pulled, ra.pushed, Object.keys(ra.state.apps).sort()], [true, false, ['x', 'y']], 'a gets y and has nothing new to write');
+  [sa, sb] = [ra.state, rb.state];
+  let n = gh.calls.length;
+  ra = await A.gistSync(a, id, ra.etag, key, sa, false, NOW);
+  assert.deepEqual([ra.pulled, ra.pushed, gh.calls.length - n], [false, false, 1], 'unchanged: one 304, no write');
+  // both edit from the same ETag (gists have no compare-and-swap): a writes after its 304, b merges a's edit before writing
+  sa = A.merge(sa, { apps: { y: { status: 'shortlisted', u: 20, d: 'a' } } }, NOW);
+  sb = A.merge(sb, { apps: { z: { status: 'applied', u: 21, d: 'b' } } }, NOW);
+  ra = await A.gistSync(a, id, ra.etag, key, sa, true, NOW);
+  assert.deepEqual([ra.pulled, ra.pushed], [false, true]);
+  rb = await A.gistSync(b, id, rb.etag, key, sb, true, NOW);
+  assert.deepEqual([rb.pulled, rb.pushed, rb.state.apps.y.status, rb.state.apps.z.status], [true, true, 'shortlisted', 'applied']);
+  ra = await A.gistSync(a, id, ra.etag, key, ra.state, false, NOW);
+  assert.deepEqual(ra.state, rb.state, 'converged, nothing lost');
+  await assert.rejects(A.gistSync(a, id, '', await A.syncKey(A.rnd(16)), sa, false, NOW), /sync code does not open this gist/);
+  await assert.rejects(A.gistSync(A.gistClient('revoked', gh.fetch), id, '', key, sa, true, NOW), e => e.status === 401);
+  await assert.rejects(A.gistSync(a, 'gone', '', key, sa, true, NOW), e => e.status === 404);
+  // rate limit: every call fails until x-ratelimit-reset, without asking GitHub
+  let now = NOW;
+  const c = A.gistClient('ghp_test', gh.fetch, () => now), reset = Math.floor(NOW / 1000) + 600;
+  gh.limited = reset;
+  await assert.rejects(c.get(id, ''), e => e.status === 403 && e.reset === reset * 1000);
+  gh.limited = 0; n = gh.calls.length;
+  await assert.rejects(c.patch(id, 'x'), e => e.reset === reset * 1000, 'held');
+  assert.equal(gh.calls.length, n, 'no request while held');
+  now = reset * 1000;
+  assert.ok(await c.get(id, ''), 'calls again from the reset time');
 });
 
 test('publish: privacy check required, *_raw stripped, leaks refused', async () => {
@@ -446,7 +468,8 @@ test('index.html: CSP and SRI hashes match the files; nothing third-party; preca
   assert.ok(csp.includes(`script-src 'self' '${sha('sha256', MAP.exec(html)[1])}'`), 'import map hash');
   for (const [u, h] of Object.entries(JSON.parse(MAP.exec(html)[1]).integrity)) assert.equal(h, sha('sha384', rd(u)), 'SRI ' + u);
   assert.equal(/src="app\.js" integrity="([^"]+)"/.exec(html)[1], sha('sha384', rd('app.js')), 'SRI app.js');
-  assert.doesNotMatch(csp, /https?:|\*|unsafe/, 'only self, hashes, blob: and data:');
+  assert.ok(csp.includes("connect-src 'self' https://api.github.com https://gist.githubusercontent.com;"), 'connects only to this origin and GitHub');
+  assert.doesNotMatch(csp.replace(/connect-src [^;]*/, ''), /https?:|\*|unsafe/, 'otherwise only self, hashes, blob: and data:');
   assert.doesNotMatch(html, /<(script|link|img)[^>]+(src|href)="(https?:)?\/\//, 'no third-party scripts, styles, fonts or images');
   const man = JSON.parse(rd('manifest.webmanifest'));
   for (const i of man.icons) assert.ok(existsSync(join(ROOT, i.src)), i.src);

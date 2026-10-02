@@ -442,10 +442,8 @@ export function unb32(s) {
 export const groups = s => s.match(/.{1,4}/g).join('-');
 
 const gz = (bytes, T) => new Response(new Blob([bytes]).stream().pipeThrough(new T('gzip'))).arrayBuffer().then(b => new Uint8Array(b));
-const hkdfBase = ikm => sub().importKey('raw', ikm, 'HKDF', false, ['deriveKey', 'deriveBits']);
-const hkdfParams = (salt, info) => ({ name: 'HKDF', hash: 'SHA-256', salt, info: te.encode(info) });
-export const hkdfKey = async (ikm, salt, info) => sub().deriveKey(hkdfParams(salt, info), await hkdfBase(ikm), { name: 'AES-GCM', length: 256 }, false, ['encrypt', 'decrypt']);
-export const hkdfBits = async (ikm, salt, info) => new Uint8Array(await sub().deriveBits(hkdfParams(salt, info), await hkdfBase(ikm), 256));
+export const hkdfKey = async (ikm, salt, info) => sub().deriveKey({ name: 'HKDF', hash: 'SHA-256', salt, info: te.encode(info) },
+  await sub().importKey('raw', ikm, 'HKDF', false, ['deriveKey']), { name: 'AES-GCM', length: 256 }, false, ['encrypt', 'decrypt']);
 
 // JSON -> gzip -> AES-GCM-256 (12-byte random IV, optional associated data).
 async function enc(key, obj, aad) {
@@ -469,11 +467,8 @@ export async function openFeed(batchKey, f) {
   return dec(await hkdfKey(batchBytes(batchKey), unb64u(f.salt), 'hq-feed-v1'), unb64u(f.iv), unb64u(f.ct), f.updated);
 }
 
-// Sync code (16 bytes) -> relay lookup id and encryption key, derived separately: the relay never learns the key.
-export async function syncIds(code) {
-  const none = new Uint8Array(0);
-  return { id: hex(await hkdfBits(code, none, 'hq-sync-id')), key: await hkdfKey(code, none, 'hq-sync-key') };
-}
+// Sync code (16 random bytes) -> the AES-GCM key for the synced copy. GitHub never sees the code or the key.
+export const syncKey = code => hkdfKey(code, new Uint8Array(0), 'hq-sync-key');
 export async function seal(key, obj) {
   const { iv, ct } = await enc(key, obj), b = new Uint8Array(12 + ct.length);
   b.set(iv); b.set(ct, 12);
@@ -491,4 +486,66 @@ export async function wrapBackup(pass, obj, iter = 600000) {
 export async function unwrapBackup(pass, f) {
   if (!f || f.v !== 1 || f.app !== 'placement-hq') throw new Error('not a Placement HQ backup');
   return dec(await pbkdf(pass, unb64u(f.salt), f.iter), unb64u(f.iv), unb64u(f.ct), 'hq-backup-v1');
+}
+
+/* ---------------------------------------------------------------- sync: a secret gist in the student's own GitHub account */
+// One file, hq.enc = seal(syncKey(code), state); neither its name nor the gist description says anything personal.
+// The token is a classic personal access token with only the gist scope, kept on the device.
+export const GIST_FILE = 'hq.enc';
+const fail = (msg, x) => Object.assign(new Error(msg), x);
+
+// A client for one token. Rate limited (403/429 with no requests left): every call fails until x-ratelimit-reset.
+export function gistClient(token, fetch = globalThis.fetch, now = Date.now) {
+  let hold = 0;
+  async function call(path, method = 'GET', body, etag) {
+    if (now() < hold) throw fail('GitHub rate limit reached', { status: 429, reset: hold });
+    const headers = { accept: 'application/vnd.github+json', authorization: 'Bearer ' + token };
+    if (body) headers['content-type'] = 'application/json';
+    if (etag) headers['if-none-match'] = etag;
+    const r = await fetch('https://api.github.com' + path, { method, headers, cache: 'no-store', body: body && JSON.stringify(body) });
+    if (r.ok || r.status === 304) return r;
+    if ((r.status === 403 || r.status === 429) && r.headers.get('x-ratelimit-remaining') === '0') hold = +r.headers.get('x-ratelimit-reset') * 1000;
+    const reset = hold > now() ? hold : 0;
+    throw fail(r.status === 401 ? 'GitHub did not accept the token' : r.status === 404 ? 'not found on GitHub' : reset ? 'GitHub rate limit reached' : 'GitHub answered ' + r.status, { status: r.status, reset });
+  }
+  const etagOf = r => r.headers.get('etag') || '';
+  return {
+    // Refuses a token that cannot write gists, or that can do more: a leaked broad token is worse.
+    async check() {
+      const sc = ((await call('/user')).headers.get('x-oauth-scopes') || '').split(',').map(s => s.trim()).filter(Boolean);
+      if (!sc.includes('gist')) throw fail('this token cannot write gists: create a classic token with only the gist scope');
+      const broad = sc.filter(s => /repo|admin|workflow|user/.test(s));
+      if (broad.length) throw fail(`this token can also use ${broad.join(', ')}: create one with only the gist scope`);
+    },
+    async create(content) {
+      const r = await call('/gists', 'POST', { public: false, description: 'Placement HQ sync (encrypted)', files: { [GIST_FILE]: { content } } });
+      return { id: (await r.json()).id, etag: etagOf(r) };
+    },
+    // {content, etag}, or null when unchanged since etag (a 304 does not count against the rate limit).
+    async get(id, etag) {
+      const r = await call('/gists/' + id, 'GET', null, etag);
+      if (r.status === 304) return null;
+      const f = ((await r.json()).files || {})[GIST_FILE];
+      if (!f) throw fail('this gist holds no Placement HQ data', { status: 404 });
+      if (!f.truncated) return { content: f.content, etag: etagOf(r) };
+      const raw = await fetch(f.raw_url); // over 1 MB; a secret gist's raw URL needs no token
+      if (!raw.ok) throw fail('GitHub answered ' + raw.status, { status: raw.status });
+      return { content: await raw.text(), etag: etagOf(r) };
+    },
+    patch: async (id, content) => etagOf(await call('/gists/' + id, 'PATCH', { files: { [GIST_FILE]: { content } } })),
+    del: id => call('/gists/' + id, 'DELETE'),
+  };
+}
+
+// Key order does not matter when comparing states.
+const canon = x => JSON.stringify(x, (k, v) => v && typeof v === 'object' && !Array.isArray(v) ? Object.fromEntries(Object.entries(v).sort(([a], [b]) => a < b ? -1 : 1)) : v);
+// One round: pull (with the ETag), merge, and write back when the gist lacks something this device has (after a
+// 304: when there are local changes). Gists have no compare-and-swap; merging on every pull makes devices converge.
+export async function gistSync(gc, id, etag, key, state, dirty, now = Date.now()) {
+  const got = await gc.get(id, etag);
+  let remote = null;
+  if (got) try { remote = await open(key, got.content); } catch { throw fail('the sync code does not open this gist'); }
+  const merged = got ? merge(state, remote, now) : state, pulled = !!got;
+  if (got ? canon(merged) === canon(remote) : !dirty) return { state: merged, etag: got ? got.etag : etag, pulled, pushed: false };
+  return { state: merged, etag: await gc.patch(id, await seal(key, merged)), pulled, pushed: true };
 }

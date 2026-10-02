@@ -3,8 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'sha256-Jc178MVeq5hJCPBQUuwpSrJ8kSO03sJ1RG0sl+5wbOQ='; style-src 'sha256-ScT3D6K5XfvRNuak54CziqMsyPR0Fx9s/GB635wwLqs='; img-src 'self' data:; connect-src 'self'; worker-src 'self' blob:; object-src 'none'; base-uri 'none'; form-action 'none'">
-<meta name="relay" content="">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'sha256-1/OXXThdmop9rVrCs7Xkr2H8LG2+CvxWQQbgRWhxKg0='; style-src 'sha256-ScT3D6K5XfvRNuak54CziqMsyPR0Fx9s/GB635wwLqs='; img-src 'self' data:; connect-src 'self' https://api.github.com https://gist.githubusercontent.com; worker-src 'self' blob:; object-src 'none'; base-uri 'none'; form-action 'none'">
 <meta name="referrer" content="no-referrer">
 <meta name="color-scheme" content="light dark">
 <meta name="theme-color" content="#f4f5f7" media="(prefers-color-scheme: light)">
@@ -79,9 +78,9 @@ ul.dsa a{min-height:44px;display:inline-flex;align-items:center}
 #qr{display:block;margin:8px 0;image-rendering:pixelated;background:#fff;padding:4px}
 [hidden]{display:none!important}
 </style>
-<script type="importmap">{"imports":{},"integrity":{"./core.js":"sha384-lWYIwU4Rxz+ZxIaF4kBMygKsCZpzK6cEixR4vopvjGlVjln1z/nimEiUCxS22omv","./vendor/pdf.min.mjs":"sha384-+0ti2moQlmLN7WZHE2RHIf5lV8hHxhxEalN0il3YZceG26fUPyOkR0hp9daxk1i7","./vendor/qrcode.mjs":"sha384-xHtsZTi0cOhTiha4kloGDUR5e5A8ixkKsF1Mmpqq3tkDpAhkA4YOKIDua/Tc0Ecd"}}</script>
+<script type="importmap">{"imports":{},"integrity":{"./core.js":"sha384-ke5UlIsH5ubtUJRmoUiObisYSQXMI3SloSwg5i2ZW80a8q/iDI43bptcEo82KTPc","./vendor/pdf.min.mjs":"sha384-+0ti2moQlmLN7WZHE2RHIf5lV8hHxhxEalN0il3YZceG26fUPyOkR0hp9daxk1i7","./vendor/qrcode.mjs":"sha384-xHtsZTi0cOhTiha4kloGDUR5e5A8ixkKsF1Mmpqq3tkDpAhkA4YOKIDua/Tc0Ecd"}}</script>
 <link rel="modulepreload" href="core.js">
-<script type="module" src="app.js" integrity="sha384-xPlNgncDB0wKomm3GUkj7UCNiAgxWC2dbUHP6nYdswwhnWswKHKF+27mGdcRARXl"></script>
+<script type="module" src="app.js" integrity="sha384-ur4tBsWrPkNpzsum0/id7bRT13EF6o+NW9T/KoUyGouZZ3qTRhT5hJDb1o3Zcwjv"></script>
 </head>
 <body>
 <header class="top"><h1>Placement HQ</h1><span id="upd" class="mu"></span></header>
@@ -154,7 +153,7 @@ ul.dsa a{min-height:44px;display:inline-flex;align-items:center}
 <label>Emails <textarea id="ide" rows="2" autocomplete="email"></textarea></label>
 <label>SR numbers <textarea id="idsr" rows="2"></textarea></label>
 <button data-act="ids">Save identifiers</button> <span id="idmsg" class="mu" role="status"></span></div>
-<div class="card"><h3>Sync your devices</h3><div id="sync"></div><p class="mu">Relay: <span id="relay"></span></p></div>
+<div class="card"><h3>Sync your devices</h3><div id="sync"></div><p id="smsg" class="mu" role="status"></p></div>
 <div class="card"><h3>Encrypted backup</h3>
 <p class="mu">A file encrypted with your passphrase (PBKDF2, 600,000 rounds, AES-GCM). Also the way to move your data to another device while live sync is off.</p>
 <label>Passphrase <input id="bpw" type="password" autocomplete="new-password"></label>
@@ -165,7 +164,7 @@ ul.dsa a{min-height:44px;display:inline-flex;align-items:center}
 <p id="dmsg" class="mu" role="status"></p></div>
 <div class="card"><h3>About and privacy</h3>
 <p>The company feed is encrypted with your batch's key, which travels in the link after the # (browsers never send that part to a server). The key is membership gating, so the feed is "not public"; it is not a secret, since anyone in the batch can pass the link on.</p>
-<p>Your personal data (statuses, notes, CV text, identifiers, pasted schedules) stays on this device. It leaves only as ciphertext: in a backup file you export, or through the sync relay if you turn sync on, which stores a blob it cannot read.</p>
+<p>Your personal data (statuses, notes, CV text, identifiers, pasted schedules) stays on this device. It leaves only as ciphertext: in a backup file you export, or, if you turn sync on, as one encrypted file in a secret gist in your own GitHub account. The sync code that encrypts it never goes to GitHub.</p>
 <p>No accounts, no analytics, no third-party scripts or fonts. Shortlist checks keep only your own matches and the schedule rows, never other students' names. The CV match runs here.</p>
 <p>Not an official OCCaP service: always confirm dates from the OCCaP mail.</p></div>
 </section>

@@ -3,4 +3,3 @@ feed.enc.json
 *.feed.json
 .batch-key
 node_modules/
-.wrangler/

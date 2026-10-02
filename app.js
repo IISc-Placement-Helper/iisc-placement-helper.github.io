@@ -2,7 +2,6 @@
 import * as C from './core.js';
 
 const $ = s => document.querySelector(s), $$ = s => [...document.querySelectorAll(s)], esc = C.esc, KIND = C.KIND;
-const RELAY = (($('meta[name=relay]') || {}).content || '').replace(/\/+$/, '');
 const VIEWS = ['home', 'companies', 'calendar', 'shortlists', 'cv', 'dsa', 'settings'];
 const LABEL = { not_applied: 'Not applied', applied: 'Applied', shortlisted: 'Shortlisted', test_scheduled: 'Test scheduled', test_done: 'Test done',
   interview_scheduled: 'Interview scheduled', interview_done: 'Interview done', offer: 'Offer', rejected: 'Rejected', withdrawn: 'Withdrawn', not_eligible: 'Not eligible' };
@@ -239,13 +238,19 @@ V.dsa = () => {
 V.settings = () => {
   const i = S.ids || {};
   if (!$('#v-settings').contains(document.activeElement)) { $('#idn').value = (i.names || []).join('\n'); $('#ide').value = (i.emails || []).join('\n'); $('#idsr').value = (i.srs || []).join('\n'); }
-  $('#relay').textContent = RELAY || 'not configured';
-  $('#sync').innerHTML = !RELAY ? '<p>Live sync is not set up for this site yet. To move your data to another device, export an encrypted backup below and import it there.</p>'
-    : !SYNC ? `<p>Keep your phone and laptop in step. Only ciphertext leaves the device; the relay cannot read it.</p><button data-act="screate">Create a sync code</button>
-      <label>Or join with the code from your other device <input id="scode" autocomplete="off" spellcheck="false" autocapitalize="characters"></label><button class="ghost" data-act="sjoin">Join</button>`
-    : `<p>Sync is on. <span class="mu">${esc(SYNC.msg || '')}</span></p><details id="qrbox"><summary>Show the code and QR for another device</summary><p class="code">${C.groups(SYNC.code)}</p>
-      <img id="qr" alt="QR code that opens this app on another device with your sync code"><p class="mu">Anyone with this code can read and change your synced data: keep it to your own devices.</p></details>
-      <button class="ghost" data-act="sstop">Stop syncing on this device</button>`;
+  const tok = `<p><a href="https://github.com/settings/tokens/new?scopes=gist&amp;description=Placement%20HQ%20sync" target="_blank" rel="noopener">Create a GitHub token with only the gist scope</a>.
+      Why: the app writes one secret gist in your account; the token never leaves your devices except to api.github.com.</p><label>Token <input id="stok" type="password" autocomplete="off" spellcheck="false"></label>`;
+  const stop = '<button class="ghost" data-act="sstop">Stop syncing on this device</button>', qr = $('#qrbox') && $('#qrbox').open;
+  $('#sync').innerHTML = !SYNC ? `<p>Keep your phone and laptop in step through a secret gist in your own GitHub account. Only ciphertext goes there.</p>${tok}
+      <button data-act="screate">Start syncing</button><details><summary>Join your other device instead</summary><p class="mu">Scan its QR, or type its code and gist id here, with a token from the same GitHub account above.</p>
+      <label>Sync code <input id="scode" autocomplete="off" spellcheck="false" autocapitalize="characters"></label><label>Gist id <input id="sgist" autocomplete="off" spellcheck="false"></label><button class="ghost" data-act="sjoin">Join</button></details>`
+    : SYNC.err === 401 ? `<p class="card warn">Token revoked or expired: paste a new one. Your data stays on this device.</p>${tok}<button data-act="stoken">Save token</button> ${stop}`
+    : SYNC.err === 404 ? `<p class="card warn">The synced copy is gone: its gist was deleted on GitHub.</p><button data-act="snew">Create a new one</button> ${stop}<p class="mu">Your other devices then need the new QR.</p>`
+    : `<p>Sync is on. <span id="snote" class="mu">${esc(SYNC.msg || '')}</span></p><details id="qrbox"${qr ? ' open' : ''}><summary>Show the code and QR for another device</summary><p class="code">${C.groups(SYNC.code)}</p>
+      <p>Gist id <span class="code">${esc(SYNC.id)}</span></p><img id="qr" alt="QR code that opens this app on another device and joins your sync">
+      <p class="mu">This QR is a credential for your own devices: it holds your sync code and GitHub token, so anyone with it can read and change your synced data and your gists.</p></details>
+      <div class="bar">${stop}<button class="bad" data-act="sdel">Delete synced copy</button></div>`;
+  if (qr) drawQr();
 };
 
 function draw() { if (FEED) V[VIEW](); }
@@ -259,60 +264,64 @@ function show(v) {
   scrollTo(0, 0);
 }
 
-/* ---------------------------------------------------------------- sync (relay) */
-const SK = {};
-const syncKeys = async () => SK[SYNC.code] || (SK[SYNC.code] = await C.syncIds(C.unb32(SYNC.code)));
-const blobUrl = id => `${RELAY}/v1/b/${id}`;
-const syncNote = msg => { if (SYNC) { SYNC.msg = msg; put('sync', SYNC); if (VIEW === 'settings') V.settings(); } };
-let pushT = 0, lastPull = 0;
-function queuePush() { if (RELAY && SYNC) { clearTimeout(pushT); pushT = setTimeout(push, 2000); } }
-
-async function push(retry = true) {
-  if (!RELAY || !SYNC) return;
-  try {
-    const { id, key } = await syncKeys();
-    const r = await fetch(blobUrl(id), { method: 'PUT', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ base: SYNC.ver || 0, data: await C.seal(key, S) }) });
-    if (r.status === 409 && retry) { const j = await r.json(); if (j.data) absorb(await C.open(key, j.data)); SYNC.ver = j.ver; return push(false); }
-    if (!r.ok) throw new Error('relay answered ' + r.status);
-    SYNC.ver = (await r.json()).ver;
-    syncNote('Last synced ' + fWhen(new Date().toISOString()) + '.');
-  } catch (e) { syncNote('Sync failed (' + e.message + '); will retry.'); }
-}
-// create: also write when the relay has nothing for this code (false when joining, so a typo is caught).
-async function pull(create = true) {
-  if (!RELAY || !SYNC || Date.now() - lastPull < 5000) return;
-  lastPull = Date.now();
-  try {
-    const { id, key } = await syncKeys();
-    const r = await fetch(blobUrl(id), { cache: 'no-store', headers: SYNC.ver ? { 'if-none-match': String(SYNC.ver) } : {} });
-    if (r.status === 404) { if (!create) throw new Error('no data for this code'); SYNC.ver = 0; return push(); }
-    if (r.status === 304) return syncNote('Last synced ' + fWhen(new Date().toISOString()) + '.');
-    if (!r.ok) throw new Error('relay answered ' + r.status);
-    const j = await r.json(), remote = await C.open(key, j.data);
-    SYNC.ver = j.ver;
-    absorb(remote);
-    if (C.maxU(S) > C.maxU(remote)) return push(); // this device has edits the other has not seen
-    syncNote('Last synced ' + fWhen(new Date().toISOString()) + '.');
-  } catch (e) { if (!create) throw e; syncNote('Sync failed (' + e.message + '); will retry.'); }
-}
-async function joinSync(code) {
-  const c = C.b32(C.unb32(code));
-  if (C.unb32(code).length !== 16) return alert('That is not a sync code (26 letters and digits).');
-  const prev = SYNC;
-  SYNC = { code: c, ver: 0 }; lastPull = 0;
-  try { await pull(false); await put('sync', SYNC); }
-  catch (e) { SYNC = prev; alert('Could not join: ' + e.message + '.'); }
+/* ---------------------------------------------------------------- sync (a secret gist in the student's own GitHub account) */
+// SYNC = {code, id (gist), token, err?, msg?} on this device only. ETag and dirty stay in memory, so the first
+// round after a reload pulls the whole gist and pushes whatever this device has that the gist lacks.
+let GC = null, KEY = null, ETAG = '', dirty = false, busy = false, again = false, pushT = 0, lastPull = 0;
+async function setSync(x) {
+  SYNC = x; GC = x && C.gistClient(x.token); KEY = x && await C.syncKey(C.unb32(x.code)); ETAG = '';
+  await put('sync', x);
   if (VIEW === 'settings') V.settings();
 }
-setInterval(() => document.visibilityState === 'visible' && pull(), 60000);
-addEventListener('focus', () => pull());
-document.addEventListener('visibilitychange', () => document.visibilityState === 'visible' && pull());
+const syncNote = msg => { if (!SYNC) return; SYNC.msg = msg; put('sync', SYNC); const n = $('#snote'); if (n) n.textContent = msg; };
+function queuePush() { if (SYNC) { dirty = true; clearTimeout(pushT); pushT = setTimeout(round, 2000); } }
+
+// One request sequence in flight at a time; a change or poll meanwhile runs one more round after it.
+async function round() {
+  if (!SYNC || SYNC.err) return;
+  if (busy) { again = true; return; }
+  busy = true; lastPull = Date.now();
+  const d = dirty;
+  dirty = false;
+  try {
+    const r = await C.gistSync(GC, SYNC.id, ETAG, KEY, S, d);
+    ETAG = r.etag;
+    if (r.pulled) absorb(r.state);
+    syncNote('Last synced ' + fWhen(new Date().toISOString()) + '.');
+  } catch (e) {
+    dirty = dirty || d;
+    if (e.status === 401 || e.status === 404) { SYNC.err = e.status; await setSync(SYNC); } // stop until the student acts; data stays
+    else syncNote(e.reset ? `GitHub rate limit reached; sync resumes after ${fWhen(new Date(e.reset).toISOString())}.` : `Sync failed (${e.message}); will retry.`);
+  } finally { busy = false; if (again) { again = false; round(); } }
+}
+const poll = () => Date.now() - lastPull > 5000 && round();
+setInterval(() => document.visibilityState === 'visible' && poll(), 60000);
+addEventListener('focus', poll);
+document.addEventListener('visibilitychange', () => document.visibilityState === 'visible' && poll());
+
+const checked = async token => { const gc = C.gistClient(token); await gc.check(); return gc; };
+async function joinSync(code, id, token) {
+  const c = C.unb32(code || '');
+  if (c.length !== 16) throw new Error('that is not a sync code (26 letters and digits)');
+  if (!/^\w+$/.test(id || '')) throw new Error('that is not a gist id');
+  const r = await C.gistSync(await checked(token), id, '', await C.syncKey(c), S, false); // fails on a wrong code or id
+  await setSync({ code: C.b32(c), id, token });
+  ETAG = r.etag;
+  absorb(r.state);
+}
+// Settings buttons that talk to GitHub: progress and errors go to #smsg.
+const gh = f => async () => {
+  const m = $('#smsg');
+  m.textContent = 'Talking to GitHub…';
+  try { await f(); m.textContent = ''; } catch (e) { m.textContent = 'Could not do that: ' + e.message + '.'; }
+};
 
 async function drawQr() {
-  const { default: qrcode } = await import('./vendor/qrcode.mjs'), q = qrcode(0, 'M');
-  q.addData(`${location.origin}${location.pathname}#k=${ls('k')}&sync=${SYNC.code}`);
+  const { default: qrcode } = await import('./vendor/qrcode.mjs'), q = qrcode(0, 'M'), img = $('#qr');
+  if (!img) return; // Settings now shows another sync state
+  q.addData(`${location.origin}${location.pathname}#k=${ls('k')}&sync=${SYNC.code}&g=${SYNC.id}&t=${SYNC.token}`);
   q.make();
-  $('#qr').src = q.createDataURL(5, 4);
+  img.src = q.createDataURL(5, 4);
 }
 
 /* ---------------------------------------------------------------- actions */
@@ -334,9 +343,22 @@ const ACT = {
   cvmore: b => { b.dataset.all = '1'; scoreCv(); },
   rev: b => { const p = b.dataset.p; setRec('dsa', p, C.srsReview(S.dsa[p] || {}, today(), !!b.dataset.ok)); V.dsa(); },
   ids: () => { setRec('ids', null, { names: lines('#idn'), emails: lines('#ide'), srs: lines('#idsr') }); $('#idmsg').textContent = 'Saved on this device.'; },
-  screate: async () => { SYNC = { code: C.b32(C.rnd(16)), ver: 0 }; await put('sync', SYNC); await push(); V.settings(); },
-  sjoin: () => joinSync($('#scode').value),
-  sstop: async () => { if (!confirm('Stop syncing on this device? Your data stays here; the other devices keep their copy.')) return; SYNC = null; await put('sync', null); V.settings(); },
+  screate: gh(async () => {
+    const token = $('#stok').value.trim(), gc = await checked(token), code = C.rnd(16);
+    const { id, etag } = await gc.create(await C.seal(await C.syncKey(code), S));
+    await setSync({ code: C.b32(code), id, token });
+    ETAG = etag;
+  }),
+  sjoin: gh(() => joinSync($('#scode').value, $('#sgist').value.trim(), $('#stok').value.trim())),
+  stoken: gh(async () => { const token = $('#stok').value.trim(); await checked(token); await setSync({ code: SYNC.code, id: SYNC.id, token }); round(); }),
+  snew: gh(async () => { const { id, etag } = await GC.create(await C.seal(KEY, S)); await setSync({ code: SYNC.code, id, token: SYNC.token }); ETAG = etag; }),
+  sstop: async () => {
+    if (confirm('Stop syncing on this device? It forgets the token, gist id and sync code. Your data stays here, and the synced copy stays on GitHub.')) await setSync(null);
+  },
+  sdel: () => confirm('Delete the synced copy from your GitHub account? This device keeps its data; your other devices stop syncing.') && gh(async () => {
+    await GC.del(SYNC.id).catch(e => { if (e.status !== 404) throw e; });
+    await setSync(null);
+  })(),
   bexp: async () => {
     const pw = $('#bpw').value, msg = $('#bmsg');
     if (pw.length < 8) { msg.textContent = 'Choose a passphrase of at least 8 characters; you need it to import.'; return; }
@@ -352,7 +374,7 @@ const ACT = {
     catch { $('#dmsg').textContent = 'Could not copy here.'; }
   },
   wipe: async () => {
-    if (!confirm('Delete everything Placement HQ stored on this device: statuses, notes, CV text, identifiers, sync code and the batch key? Copies on your other devices stay.')) return;
+    if (!confirm('Delete everything Placement HQ stored on this device: statuses, notes, CV text, identifiers, sync code, GitHub token and the batch key? Copies on your other devices and in your sync gist stay.')) return;
     try { (await idb).close(); } catch { /* none open */ }
     try { indexedDB.deleteDatabase('hq'); localStorage.clear(); } catch { /* storage blocked */ }
     try { for (const k of await caches.keys()) await caches.delete(k); for (const r of await navigator.serviceWorker.getRegistrations()) await r.unregister(); } catch { /* no SW */ }
@@ -415,10 +437,10 @@ document.addEventListener('toggle', e => {
 const link = s => new URLSearchParams(s.includes('#') ? s.split('#')[1] : 'k=' + s); // a pasted link, a location.hash or a bare key
 $('#lock-form').addEventListener('submit', e => {
   e.preventDefault();
-  const p = link($('#lock-in').value.trim()), k = p.get('k'), s = p.get('sync');
+  const p = link($('#lock-in').value.trim()), k = p.get('k');
   if (!/^[\w-]{22}$/.test(k || '')) { $('#lock-msg').textContent = 'That does not look like the batch link. Paste the whole link.'; return; }
   ls('k', k); $('#lock-in').value = '';
-  unlock().then(ok => ok && s && joinPrompt(s));
+  unlock().then(ok => ok && joinPrompt(p));
 });
 addEventListener('beforeinstallprompt', e => { DEFER = e; if (VIEW === 'home' && FEED) V.home(); });
 setInterval(() => { for (const el of $$('[data-cd]')) el.textContent = cdText(el.dataset.cd); }, 30000);
@@ -447,20 +469,23 @@ async function unlock() {
   show(ls('view') || 'home');
   return true;
 }
-async function joinPrompt(code) {
-  if (!RELAY) return alert('This link carries a sync code, but live sync is not set up on this site. Use an encrypted backup instead.');
-  if (SYNC && SYNC.code === C.b32(C.unb32(code))) return;
-  if (confirm('Join sync with your other device? Its data and this device\'s are merged.')) { await joinSync(code); show('settings'); }
+// A pairing link from another device: #k=<batch>&sync=<code>&g=<gist id>&t=<token>.
+async function joinPrompt(p) {
+  const code = p.get('sync');
+  if (!code || SYNC && SYNC.code === C.b32(C.unb32(code))) return;
+  if (!confirm('Join sync with your other device? Its data and this device\'s are merged.')) return;
+  try { await joinSync(code, p.get('g'), p.get('t')); } catch (e) { alert('Could not join: ' + e.message + '.'); }
+  show('settings');
 }
 (async () => {
-  const h = link(location.hash), k = h.get('k'), join = h.get('sync');
+  const h = link(location.hash), k = h.get('k');
   if (k) ls('k', k);
-  if (location.hash) history.replaceState(null, '', location.pathname + location.search); // the key does not stay in the address bar
+  if (location.hash) history.replaceState(null, '', location.pathname + location.search); // the key and token do not stay in the address bar
   S = Object.assign(C.emptyState(), await get('state'));
   LASTU = C.maxU(S);
-  SYNC = await get('sync');
+  await setSync(await get('sync'));
   if ('serviceWorker' in navigator) navigator.serviceWorker.register('sw.js').catch(() => {});
   if (!await unlock()) return;
-  if (join) await joinPrompt(join);
-  pull();
+  await joinPrompt(h);
+  round();
 })();
