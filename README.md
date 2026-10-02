@@ -65,7 +65,7 @@ node tools/publish.mjs --feed <feed.json> --check <checker.js> --upload --site h
   The publisher also refuses feeds with email addresses, phone numbers or local file paths, and drops `*_raw` fields.
 - The batch key is read from `.batch-key` (git-ignored, created on the first run). Back it up.
 - `--new-key` rotates the key: share the new link; old links stop opening the feed once it is deployed.
-- `--upload` needs the GitHub CLI (`gh`) logged in with access to the repository.
+- `--upload` uses the GitHub REST API with `GITHUB_TOKEN`, or the token your git credential helper already holds; the account needs write access to the repository. `--repo owner/name` overrides the `origin` remote.
 
 Feed shape: `{companies: [{slug, company, deadline, max_roles, poc[], ctc, location, test, interview, kind,
 process[], info, roles: [{title, track, ctc, location, eligibility}]}], jds: [{id, label, text}], skills: [],

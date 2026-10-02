@@ -4,7 +4,8 @@
 //   encrypted; nothing is written unless it exits 0. Generic leak checks run here as well.
 // Key: --key, else HQ_BATCH_KEY, else .batch-key in the repo root (git-ignored; created on first run, --new-key rotates).
 // Output: feed.enc.json in the repo root (git-ignored), which `npx serve` serves for local testing.
-// --upload: replace the `feed` release asset with gh and re-run the Pages workflow.
+// --upload [--repo owner/name]: replace the `feed` release asset and re-run the Pages workflow (GitHub REST API;
+//   token from GITHUB_TOKEN or the git credential helper).
 import { readFileSync, writeFileSync, existsSync, mkdtempSync, rmSync } from 'node:fs';
 import { execFileSync, spawnSync } from 'node:child_process';
 import { join, dirname, basename } from 'node:path';
@@ -68,10 +69,22 @@ console.log(`${basename(out)}: ${cos.length} entries, ${feed.jds.length} JDs, ${
 const site = (opt('site') || process.env.HQ_SITE || 'http://localhost:4400').replace(/\/+$/, '');
 if (flag('upload')) {
   if (basename(out) !== 'feed.enc.json') die('--upload needs the default output name');
-  const gh = (...a) => execFileSync('gh', a, { cwd: ROOT, stdio: 'inherit' });
-  try { gh('release', 'upload', 'feed', out, '--clobber'); }
-  catch { gh('release', 'create', 'feed', out, '--title', 'Encrypted feed', '--notes', 'AES-GCM ciphertext of the batch feed; the key is only in the shared link.'); }
-  gh('workflow', 'run', 'pages.yml');
-  console.log('Uploaded; the Pages workflow is deploying it.');
+  // GitHub REST API; token from GITHUB_TOKEN or the git credential helper (no gh CLI needed).
+  const repo = opt('repo') || execFileSync('git', ['remote', 'get-url', 'origin'], { cwd: ROOT }).toString().trim().replace(/^.*github\.com[/:]|\.git$/g, '');
+  const token = process.env.GITHUB_TOKEN || (spawnSync('git', ['credential', 'fill'], { input: 'protocol=https\nhost=github.com\n\n' }).stdout.toString().match(/^password=(.+)$/m) || [])[1];
+  if (!token) die('no GitHub token: set GITHUB_TOKEN or sign in to git once');
+  const api = async (url, init = {}) => {
+    const r = await fetch(url.startsWith('http') ? url : `https://api.github.com/repos/${repo}${url}`,
+      { ...init, headers: { Authorization: `Bearer ${token}`, Accept: 'application/vnd.github+json', ...init.headers } });
+    if (!r.ok && r.status !== 404) die(`${init.method || 'GET'} ${url}: ${r.status} ${await r.text()}`);
+    return r.status === 204 ? null : r.status === 404 ? undefined : r.json();
+  };
+  const rel = (await api('/releases/tags/feed')) || await api('/releases', { method: 'POST',
+    body: JSON.stringify({ tag_name: 'feed', name: 'Encrypted feed', body: 'AES-GCM ciphertext of the batch feed; the key is only in the shared link.' }) });
+  for (const a of rel.assets || []) if (a.name === 'feed.enc.json') await api(`/releases/assets/${a.id}`, { method: 'DELETE' });
+  await api(`https://uploads.github.com/repos/${repo}/releases/${rel.id}/assets?name=feed.enc.json`,
+    { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: readFileSync(out) });
+  await api('/actions/workflows/pages.yml/dispatches', { method: 'POST', body: JSON.stringify({ ref: 'main' }) });
+  console.log(`Uploaded to ${repo}; the Pages workflow is deploying it.`);
 }
 console.log('Batch link: ' + site + '/#k=' + key);
