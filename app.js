@@ -456,7 +456,7 @@ async function joinPrompt(code) {
 (async () => {
   const h = new URLSearchParams(location.hash.slice(1)), k = h.get('k'), join = h.get('sync');
   if (k) ls('k', k);
-  if (location.hash) history.replaceState(null, '', location.pathname + location.search); // the key never stays in the address bar or history
+  if (location.hash) history.replaceState(null, '', location.pathname + location.search); // the key does not stay in the address bar
   S = Object.assign(C.emptyState(), await get('state'));
   LASTU = C.maxU(S);
   SYNC = await get('sync');

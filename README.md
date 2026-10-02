@@ -11,8 +11,9 @@ Not an official OCCaP service: always confirm dates from the OCCaP mail.
 
 - **The batch key is membership gating, not secrecy.** The company feed is encrypted (AES-GCM-256 under a key
   from HKDF-SHA256) with a batch key that travels in the link fragment, `#k=...`. Browsers never send the
-  fragment to a server; the app keeps the key on the device and removes it from the address bar and history.
-  Anyone with the link can read the feed and can forward the link, so the feed is "not public", not secret.
+  fragment to a server; the app keeps the key on the device and removes it from the address bar (the browser's
+  own history list may still hold the link as it was opened). Anyone with the link can read the feed and can
+  forward the link, so the feed is "not public", not secret.
 - **Personal data stays on the device** (IndexedDB, with a localStorage fallback) and leaves it only as
   ciphertext: in a backup file you export (PBKDF2-SHA256, 600,000 rounds, then AES-GCM), or, if live sync is on,
   as an AES-GCM blob on the relay. The sync code is never sent: the relay lookup id and the encryption key are
