@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'sha256-1+QkErMmKomnXoJeQiQzNclNMWxUSdW4poQY4av/wFY='; style-src 'sha256-DMQPFv6ytFmJjBeRx0qolTXSVZwskqF/KgREViYyMuY='; img-src 'self' data:; connect-src 'self'; worker-src 'self' blob:; object-src 'none'; base-uri 'none'; form-action 'none'">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'sha256-Jc178MVeq5hJCPBQUuwpSrJ8kSO03sJ1RG0sl+5wbOQ='; style-src 'sha256-ScT3D6K5XfvRNuak54CziqMsyPR0Fx9s/GB635wwLqs='; img-src 'self' data:; connect-src 'self'; worker-src 'self' blob:; object-src 'none'; base-uri 'none'; form-action 'none'">
 <meta name="relay" content="">
 <meta name="referrer" content="no-referrer">
 <meta name="color-scheme" content="light dark">
@@ -18,7 +18,7 @@
 :root{color-scheme:light dark;--bg:#f4f5f7;--fg:#16191d;--mu:#525a64;--card:#fff;--line:#d3d8de;--acc:#1957c2;--on:#fff;--warn:#6f3d00;--warnbg:#fff2dc;--note:#e8effc;--ok:#15613a;--okbg:#e1f2e6;--chip:#eaedf1;--dl:#b3261e;--ts:#1957c2;--iv:#6b3fa0}
 @media (prefers-color-scheme:dark){:root{--bg:#0f1114;--fg:#e6e8eb;--mu:#a7aeb8;--card:#181b20;--line:#2e333b;--acc:#8ab4f8;--on:#0f1114;--warn:#f6c886;--warnbg:#2b2213;--note:#15223a;--ok:#8fd5a4;--okbg:#13291b;--chip:#272c34;--dl:#f2a29c;--ts:#8ab4f8;--iv:#c9a7f5}}
 *{box-sizing:border-box}
-html{-webkit-text-size-adjust:100%;text-size-adjust:100%;scroll-behavior:smooth}
+html{-webkit-text-size-adjust:100%;text-size-adjust:100%}
 body{margin:0;background:var(--bg);color:var(--fg);font:16px/1.5 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;padding-bottom:calc(64px + env(safe-area-inset-bottom))}
 h1,h2,h3{line-height:1.25;margin:.3em 0 .5em}h1,h2{font-size:1.15rem}h3{font-size:1rem}
 a{color:var(--acc)}
@@ -30,7 +30,7 @@ nav{position:fixed;left:0;right:0;bottom:0;z-index:3;display:flex;background:var
 nav button{flex:1 1 auto;min-height:56px;padding:0 3px;border:0;border-radius:0;background:none;color:var(--mu);font-size:.72rem;white-space:nowrap}
 nav button[aria-current]{color:var(--acc);font-weight:700;box-shadow:inset 0 3px var(--acc)}
 @media (min-width:900px){body{padding:0 0 0 200px}nav{top:0;right:auto;width:200px;flex-direction:column;gap:2px;padding:64px 10px 10px;border:0;border-right:1px solid var(--line)}nav button{flex:none;min-height:44px;padding:0 14px;text-align:left;font-size:1rem;border-radius:8px}nav button[aria-current]{box-shadow:none;background:var(--chip)}}
-button,.btn{font:inherit;min-height:44px;padding:8px 16px;border:1px solid var(--acc);border-radius:8px;background:var(--acc);color:var(--on);cursor:pointer;transition:background-color .15s,color .15s}
+button,.btn{font:inherit;min-height:44px;padding:8px 16px;border:1px solid var(--acc);border-radius:8px;background:var(--acc);color:var(--on);cursor:pointer}
 button.ghost,.btn{background:none;color:var(--acc)}
 button.bad{background:none;border-color:var(--dl);color:var(--dl)}
 button.link{min-height:0;padding:0;border:0;background:none;color:var(--acc);text-decoration:underline}
@@ -77,12 +77,11 @@ ul.dsa{list-style:none;padding:0;margin:0 0 12px}ul.dsa li{display:flex;flex-wra
 ul.dsa a{min-height:44px;display:inline-flex;align-items:center}
 #d-due li{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin:6px 0}#d-due li span{flex:1 1 160px}
 #qr{display:block;margin:8px 0;image-rendering:pixelated;background:#fff;padding:4px}
-@media (prefers-reduced-motion:reduce){*,::before,::after{animation:none!important;transition:none!important;scroll-behavior:auto!important}}
 [hidden]{display:none!important}
 </style>
-<script type="importmap">{"imports":{},"integrity":{"./core.js":"sha384-o8lGUl5w19NI7tz/ruc61LQ/4jziMJiTBv2YnOqJvVK8oA630DU6tC9wIVKrNqZ7","./vendor/pdf.min.mjs":"sha384-+0ti2moQlmLN7WZHE2RHIf5lV8hHxhxEalN0il3YZceG26fUPyOkR0hp9daxk1i7","./vendor/qrcode.mjs":"sha384-xHtsZTi0cOhTiha4kloGDUR5e5A8ixkKsF1Mmpqq3tkDpAhkA4YOKIDua/Tc0Ecd"}}</script>
+<script type="importmap">{"imports":{},"integrity":{"./core.js":"sha384-lWYIwU4Rxz+ZxIaF4kBMygKsCZpzK6cEixR4vopvjGlVjln1z/nimEiUCxS22omv","./vendor/pdf.min.mjs":"sha384-+0ti2moQlmLN7WZHE2RHIf5lV8hHxhxEalN0il3YZceG26fUPyOkR0hp9daxk1i7","./vendor/qrcode.mjs":"sha384-xHtsZTi0cOhTiha4kloGDUR5e5A8ixkKsF1Mmpqq3tkDpAhkA4YOKIDua/Tc0Ecd"}}</script>
 <link rel="modulepreload" href="core.js">
-<script type="module" src="app.js" integrity="sha384-/LtGiKyzgG7l0zLJNYGIshD+E8pHM/xnDtVUaNDBRMkpHTSpWXQSZMbGXwlQPRAz"></script>
+<script type="module" src="app.js" integrity="sha384-+GdBgEqEq5hSJB7xWsS3rZmIM9kW6MZQIjr8jnBLDDfwRiuco7rsjZ+GeCrrD3Lq"></script>
 </head>
 <body>
 <header class="top"><h1>Placement HQ</h1><span id="upd" class="mu"></span></header>

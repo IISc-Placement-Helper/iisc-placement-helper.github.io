@@ -1,8 +1,8 @@
 // Encrypt the batch feed for the site. Neither the feed nor the key ever goes in git.
 //   node tools/publish.mjs --feed <feed.json> --check <checker.js> [--upload --site https://<org>.github.io] [--new-key] [--key <k>] [--out <file>]
-// --check (or HQ_FEED_CHECK): a privacy checker run as `node <checker> <feed.json>` on exactly what will be
+// --check: a privacy checker run as `node <checker> <feed.json>` on exactly what will be
 //   encrypted; nothing is written unless it exits 0. Generic leak checks run here as well.
-// Key: --key, else HQ_BATCH_KEY, else .batch-key in the repo root (git-ignored; created on first run, --new-key rotates).
+// Key: --key, else .batch-key in the repo root (git-ignored; created on first run, --new-key rotates).
 // Output: feed.enc.json in the repo root (git-ignored), which `npx serve` serves for local testing.
 // --upload [--repo owner/name]: replace the `feed` release asset and re-run the Pages workflow (GitHub REST API;
 //   token from GITHUB_TOKEN or the git credential helper).
@@ -17,7 +17,7 @@ const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..'), argv = process
 const opt = n => { const i = argv.indexOf('--' + n); return i >= 0 ? argv[i + 1] : undefined; }, flag = n => argv.includes('--' + n);
 const die = m => { console.error('publish: ' + m); process.exit(1); };
 
-const src = opt('feed') || process.env.HQ_FEED, check = opt('check') || process.env.HQ_FEED_CHECK;
+const src = opt('feed'), check = opt('check');
 if (!src) die('--feed <feed.json> is required');
 if (!check || !existsSync(check)) die('--check <checker.js> is required: the feed is never encrypted without the privacy check');
 
@@ -54,7 +54,7 @@ rmSync(tmp, { recursive: true, force: true });
 if (ck.status !== 0) die('privacy check failed (' + basename(check) + '); nothing written');
 
 const keyFile = join(ROOT, '.batch-key');
-let key = opt('key') || process.env.HQ_BATCH_KEY || (!flag('new-key') && existsSync(keyFile) ? readFileSync(keyFile, 'utf8').trim() : '');
+let key = opt('key') || (!flag('new-key') && existsSync(keyFile) ? readFileSync(keyFile, 'utf8').trim() : '');
 if (!key) {
   key = newBatchKey();
   writeFileSync(keyFile, key + '\n');
@@ -66,7 +66,7 @@ if (JSON.stringify(await openFeed(key, file)) !== JSON.stringify(feed)) die('rou
 writeFileSync(out, JSON.stringify(file));
 console.log(`${basename(out)}: ${cos.length} entries, ${feed.jds.length} JDs, ${feed.dsa.length} DSA problems; ${(JSON.stringify(file).length / 1024).toFixed(0)} KB encrypted; updated ${file.updated}`);
 
-const site = (opt('site') || process.env.HQ_SITE || 'http://localhost:4400').replace(/\/+$/, '');
+const site = (opt('site') || 'http://localhost:4400').replace(/\/+$/, '');
 if (flag('upload')) {
   if (basename(out) !== 'feed.enc.json') die('--upload needs the default output name');
   // GitHub REST API; token from GITHUB_TOKEN or the git credential helper (no gh CLI needed).

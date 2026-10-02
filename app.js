@@ -1,13 +1,12 @@
 // Placement HQ app: UI, storage on this device, feed decryption, sync. The logic it relies on is in core.js.
 import * as C from './core.js';
 
-const $ = s => document.querySelector(s), $$ = s => [...document.querySelectorAll(s)], esc = C.esc;
+const $ = s => document.querySelector(s), $$ = s => [...document.querySelectorAll(s)], esc = C.esc, KIND = C.KIND;
 const RELAY = (($('meta[name=relay]') || {}).content || '').replace(/\/+$/, '');
 const VIEWS = ['home', 'companies', 'calendar', 'shortlists', 'cv', 'dsa', 'settings'];
 const LABEL = { not_applied: 'Not applied', applied: 'Applied', shortlisted: 'Shortlisted', test_scheduled: 'Test scheduled', test_done: 'Test done',
   interview_scheduled: 'Interview scheduled', interview_done: 'Interview done', offer: 'Offer', rejected: 'Rejected', withdrawn: 'Withdrawn', not_eligible: 'Not eligible' };
-const KIND = { deadline: 'Deadline', test: 'Test', interview: 'Interview' };
-const ls = (k, v) => { try { if (v === undefined) return localStorage.getItem('hq:' + k); if (v === null) localStorage.removeItem('hq:' + k); else localStorage.setItem('hq:' + k, v); } catch { return null; } };
+const ls =(k, v) => { try { if (v === undefined) return localStorage.getItem('hq:' + k); if (v === null) localStorage.removeItem('hq:' + k); else localStorage.setItem('hq:' + k, v); } catch { return null; } };
 
 /* ---------------------------------------------------------------- storage: IndexedDB, localStorage fallback */
 const idb = new Promise(res => {
@@ -128,9 +127,8 @@ function coSum(c) {
     <span class="mu">${esc([...new Set(c.roles.map(r => r.track))].join(' · '))}${c.ctc ? ' · ' + esc(c.ctc) : ''}</span>${st.length ? `<span class="mine">You: ${st.map(s => LABEL[s]).join(', ')}</span>` : ''}`;
 }
 function coBody(c) {
-  const ti = x => x && [fDay(x.date), x.time, x.mode, x.confirmed ? '' : 'tentative'].filter(Boolean).join(', ');
-  const rows = [['Deadline', c.deadline && fWhen(c.deadline) + ' IST'], ['Max roles', c.max_roles], ['CTC', c.ctc], ['Location', c.location], ['Test', ti(c.test)],
-    ['Interview', ti(c.interview)], ['OCCaP contact', (c.poc || []).join(', ')]].filter(x => x[1] != null && x[1] !== '');
+  const rows = [['Deadline', c.deadline && fWhen(c.deadline) + ' IST'], ['Max roles', c.max_roles], ['CTC', c.ctc], ['Location', c.location], ['Test', c.test && tiText(c.test)],
+    ['Interview', c.interview && tiText(c.interview)], ['OCCaP contact', (c.poc || []).join(', ')]].filter(x => x[1] != null && x[1] !== '');
   return `<dl>${rows.map(([k, v]) => `<dt>${k}</dt><dd>${esc(v)}</dd>`).join('')}</dl>${(c.process || []).length ? `<h3>Process</h3><ol>${c.process.map(p => `<li>${esc(p)}</li>`).join('')}</ol>` : ''}${
     c.info ? `<p>${esc(c.info)}</p>` : ''}${c.roles.map(r => roleBox(c, r)).join('')}`;
 }
@@ -234,7 +232,7 @@ V.dsa = () => {
   const g = {};
   for (const p of FEED.dsa) if ((!f || st(p) === f) && (!q || (p.problem + ' ' + p.topic).toLowerCase().includes(q))) (g[p.topic] = g[p.topic] || []).push(p);
   $('#d-list').innerHTML = Object.entries(g).map(([topic, ps]) => `<h3>${esc(topic)}</h3><ul class="dsa">${ps.map(p => `<li><label class="ck"><input type="checkbox" name="dsa-${C.h32(p.problem)}" data-dsa="${esc(p.problem)}"${st(p) !== 'todo' ? ' checked' : ''}> ${esc(p.problem)}</label>${
-    chip(p.difficulty, 'd-' + lc(p.difficulty))}${st(p) === 'revisit' ? chip('revisit') : ''}<a href="https://leetcode.com/problems/${lc(p.problem)}/" target="_blank" rel="noopener" aria-label="${esc(p.problem)} on LeetCode">LeetCode</a></li>`).join('')}</ul>`).join('')
+    chip(p.difficulty)}${st(p) === 'revisit' ? chip('revisit') : ''}<a href="https://leetcode.com/problems/${lc(p.problem)}/" target="_blank" rel="noopener" aria-label="${esc(p.problem)} on LeetCode">LeetCode</a></li>`).join('')}</ul>`).join('')
     || '<p class="mu">No problems match.</p>';
 };
 
@@ -413,13 +411,13 @@ document.addEventListener('toggle', e => {
   if (d.matches('details.co')) { const b = d.querySelector('.body'); if (!b.innerHTML) b.innerHTML = coBody(BY[d.dataset.slug]); }
   if (d.id === 'qrbox') drawQr();
 }, true);
+const link = s => new URLSearchParams(s.includes('#') ? s.split('#')[1] : 'k=' + s); // a pasted link, a location.hash or a bare key
 $('#lock-form').addEventListener('submit', e => {
   e.preventDefault();
-  const v = $('#lock-in').value.trim(), k = (/[#&]k=([\w-]+)/.exec(v) || [])[1] || (/^[\w-]{22}$/.test(v) ? v : '');
+  const p = link($('#lock-in').value.trim()), k = p.get('k'), s = p.get('sync');
   if (!k) { $('#lock-msg').textContent = 'That does not look like the batch link. Paste the whole link.'; return; }
   ls('k', k); $('#lock-in').value = '';
-  const s = /[#&]sync=([A-Za-z0-9-]+)/.exec(v);
-  unlock().then(ok => ok && s && joinPrompt(s[1]));
+  unlock().then(ok => ok && s && joinPrompt(s));
 });
 addEventListener('beforeinstallprompt', e => { DEFER = e; if (VIEW === 'home' && FEED) V.home(); });
 setInterval(() => { for (const el of $$('[data-cd]')) el.textContent = cdText(el.dataset.cd); }, 30000);
@@ -454,7 +452,7 @@ async function joinPrompt(code) {
   if (confirm('Join sync with your other device? Its data and this device\'s are merged.')) { await joinSync(code); show('settings'); }
 }
 (async () => {
-  const h = new URLSearchParams(location.hash.slice(1)), k = h.get('k'), join = h.get('sync');
+  const h = link(location.hash), k = h.get('k'), join = h.get('sync');
   if (k) ls('k', k);
   if (location.hash) history.replaceState(null, '', location.pathname + location.search); // the key does not stay in the address bar
   S = Object.assign(C.emptyState(), await get('state'));

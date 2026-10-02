@@ -13,5 +13,5 @@ self.addEventListener('fetch', e => {
   if (req.method !== 'GET' || url.origin !== location.origin) return;
   if (url.pathname.endsWith('/feed.enc.json')) return e.respondWith(fetch(req).then(r => keep(url.pathname, r)).catch(() => caches.match(url.pathname)));
   if (req.mode === 'navigate') return e.respondWith(caches.match('./').then(hit => hit || fetch(req)));
-  e.respondWith(caches.match(req, { ignoreSearch: true }).then(hit => hit || fetch(req).then(r => keep(req, r))));
+  e.respondWith(caches.match(req).then(hit => hit || fetch(req).then(r => keep(req, r))));
 });

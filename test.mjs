@@ -362,15 +362,15 @@ function d1() {
   const run = (sql, a) => {
     if (sql.startsWith('SELECT')) return t.has(a[0]) ? Object.assign({}, t.get(a[0])) : null;
     if (sql.startsWith('UPDATE')) {
-      const [data, updated, wcount, wstart, id, base] = a, r = t.get(id);
+      const [data, wcount, wstart, id, base] = a, r = t.get(id);
       if (!r || r.ver !== base) return { meta: { changes: 0 } };
-      Object.assign(r, { ver: r.ver + 1, data, updated, wcount, wstart });
+      Object.assign(r, { ver: r.ver + 1, data, wcount, wstart });
       return { meta: { changes: 1 } };
     }
     if (sql.startsWith('INSERT')) {
-      const [id, data, updated, wstart] = a;
+      const [id, data, wstart] = a;
       if (t.has(id)) return { meta: { changes: 0 } };
-      t.set(id, { id, ver: 1, data, updated, wcount: 1, wstart });
+      t.set(id, { id, ver: 1, data, wcount: 1, wstart });
       return { meta: { changes: 1 } };
     }
     throw new Error('unexpected SQL ' + sql);

@@ -36,8 +36,8 @@ export default {
     const now = Date.now(), fresh = !row || now - row.wstart >= HOUR, wcount = fresh ? 1 : row.wcount + 1, wstart = fresh ? now : row.wstart;
     if (wcount > LIMIT) return json({ error: 'too many writes' }, 429, { 'retry-after': String(Math.ceil((wstart + HOUR - now) / 1000)) });
     const r = row
-      ? await env.DB.prepare('UPDATE blobs SET ver = ver + 1, data = ?, updated = ?, wcount = ?, wstart = ? WHERE id = ? AND ver = ?').bind(data, now, wcount, wstart, id, base).run()
-      : base === 0 ? await env.DB.prepare('INSERT INTO blobs (id, ver, data, updated, wcount, wstart) VALUES (?, 1, ?, ?, 1, ?) ON CONFLICT(id) DO NOTHING').bind(id, data, now, now).run()
+      ? await env.DB.prepare('UPDATE blobs SET ver = ver + 1, data = ?, wcount = ?, wstart = ? WHERE id = ? AND ver = ?').bind(data, wcount, wstart, id, base).run()
+      : base === 0 ? await env.DB.prepare('INSERT INTO blobs (id, ver, data, wcount, wstart) VALUES (?, 1, ?, 1, ?) ON CONFLICT(id) DO NOTHING').bind(id, data, now).run()
       : null;
     if (!r || !r.meta.changes) { const cur = await get(); return json(cur ? { ver: cur.ver, data: cur.data } : { ver: 0, data: '' }, 409); }
     return json({ ver: row ? base + 1 : 1 }, 200);

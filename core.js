@@ -107,7 +107,7 @@ export function buildIcs(items, stampMs = Date.now()) {
   return L.map(icsFold).join('\r\n') + '\r\n';
 }
 
-const KIND = { deadline: 'Deadline', test: 'Test', interview: 'Interview' };
+export const KIND = { deadline: 'Deadline', test: 'Test', interview: 'Interview' };
 export const calItems = evs => evs.map(e => ({ uid: e.uid, date: e.date, time: e.start, end: e.end, dur: e.kind === 'deadline' ? 15 : 60,
   summary: `${KIND[e.kind]}: ${e.company}${e.title ? ' - ' + e.title : ''}${e.tentative ? ' (tentative)' : ''}`,
   desc: [e.kind === 'deadline' ? `Form closes ${e.start} IST` : '', e.mode, e.src === 'sheet' ? 'from the pasted OCCaP schedule' : e.src === 'you' ? 'date you entered' : '']
@@ -449,11 +449,11 @@ export const hkdfBits = async (ikm, salt, info) => new Uint8Array(await sub().de
 
 // JSON -> gzip -> AES-GCM-256 (12-byte random IV, optional associated data).
 async function enc(key, obj, aad) {
-  const iv = rnd(12), p = aad ? { name: 'AES-GCM', iv, additionalData: te.encode(aad) } : { name: 'AES-GCM', iv };
-  return { iv, ct: new Uint8Array(await sub().encrypt(p, key, await gz(te.encode(JSON.stringify(obj)), CompressionStream))) };
+  const iv = rnd(12), p = { name: 'AES-GCM', iv, additionalData: te.encode(aad ?? '') };
+  return { iv, ct: new Uint8Array(await sub().encrypt(p, key,await gz(te.encode(JSON.stringify(obj)), CompressionStream))) };
 }
 async function dec(key, iv, ct, aad) {
-  const p = aad ? { name: 'AES-GCM', iv, additionalData: te.encode(aad) } : { name: 'AES-GCM', iv };
+  const p = { name: 'AES-GCM', iv, additionalData: te.encode(aad ?? '') };
   return JSON.parse(td.decode(await gz(new Uint8Array(await sub().decrypt(p, key, ct)), DecompressionStream)));
 }
 
