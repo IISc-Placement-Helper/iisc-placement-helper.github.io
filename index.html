@@ -1,0 +1,175 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'sha256-1+QkErMmKomnXoJeQiQzNclNMWxUSdW4poQY4av/wFY='; style-src 'sha256-DMQPFv6ytFmJjBeRx0qolTXSVZwskqF/KgREViYyMuY='; img-src 'self' data:; connect-src 'self'; worker-src 'self' blob:; object-src 'none'; base-uri 'none'; form-action 'none'">
+<meta name="relay" content="">
+<meta name="referrer" content="no-referrer">
+<meta name="color-scheme" content="light dark">
+<meta name="theme-color" content="#f4f5f7" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#0f1114" media="(prefers-color-scheme: dark)">
+<meta name="description" content="Deadlines, tests, interviews, shortlists and prep for your placement batch. Your data stays on your device.">
+<title>Placement HQ</title>
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" href="icons/icon.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="icons/icon-192.png">
+<style>
+:root{color-scheme:light dark;--bg:#f4f5f7;--fg:#16191d;--mu:#525a64;--card:#fff;--line:#d3d8de;--acc:#1957c2;--on:#fff;--warn:#6f3d00;--warnbg:#fff2dc;--note:#e8effc;--ok:#15613a;--okbg:#e1f2e6;--chip:#eaedf1;--dl:#b3261e;--ts:#1957c2;--iv:#6b3fa0}
+@media (prefers-color-scheme:dark){:root{--bg:#0f1114;--fg:#e6e8eb;--mu:#a7aeb8;--card:#181b20;--line:#2e333b;--acc:#8ab4f8;--on:#0f1114;--warn:#f6c886;--warnbg:#2b2213;--note:#15223a;--ok:#8fd5a4;--okbg:#13291b;--chip:#272c34;--dl:#f2a29c;--ts:#8ab4f8;--iv:#c9a7f5}}
+*{box-sizing:border-box}
+html{-webkit-text-size-adjust:100%;text-size-adjust:100%;scroll-behavior:smooth}
+body{margin:0;background:var(--bg);color:var(--fg);font:16px/1.5 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;padding-bottom:calc(64px + env(safe-area-inset-bottom))}
+h1,h2,h3{line-height:1.25;margin:.3em 0 .5em}h1,h2{font-size:1.15rem}h3{font-size:1rem}
+a{color:var(--acc)}
+p,li{overflow-wrap:anywhere}
+.top{position:sticky;top:0;z-index:2;display:flex;flex-wrap:wrap;align-items:baseline;gap:2px 12px;padding:10px 16px;background:var(--bg);border-bottom:1px solid var(--line)}
+.top h1{margin:0}
+main{max-width:860px;margin:0 auto;padding:12px 16px 32px}
+nav{position:fixed;left:0;right:0;bottom:0;z-index:3;display:flex;background:var(--card);border-top:1px solid var(--line);padding:0 2px env(safe-area-inset-bottom)}
+nav button{flex:1 1 auto;min-height:56px;padding:0 3px;border:0;border-radius:0;background:none;color:var(--mu);font-size:.72rem;white-space:nowrap}
+nav button[aria-current]{color:var(--acc);font-weight:700;box-shadow:inset 0 3px var(--acc)}
+@media (min-width:900px){body{padding:0 0 0 200px}nav{top:0;right:auto;width:200px;flex-direction:column;gap:2px;padding:64px 10px 10px;border:0;border-right:1px solid var(--line)}nav button{flex:none;min-height:44px;padding:0 14px;text-align:left;font-size:1rem;border-radius:8px}nav button[aria-current]{box-shadow:none;background:var(--chip)}}
+button,.btn{font:inherit;min-height:44px;padding:8px 16px;border:1px solid var(--acc);border-radius:8px;background:var(--acc);color:var(--on);cursor:pointer;transition:background-color .15s,color .15s}
+button.ghost,.btn{background:none;color:var(--acc)}
+button.bad{background:none;border-color:var(--dl);color:var(--dl)}
+button.link{min-height:0;padding:0;border:0;background:none;color:var(--acc);text-decoration:underline}
+:focus-visible{outline:3px solid var(--acc);outline-offset:2px}
+input,select,textarea{font:inherit;color:inherit;background:var(--card);border:1px solid var(--line);border-radius:8px;padding:8px 10px;min-height:44px;width:100%;margin-top:2px}
+input[type=checkbox]{width:22px;height:22px;min-height:0;margin:0;flex:none;accent-color:var(--acc)}
+label{display:block;margin:10px 0}
+label.ck{display:flex;align-items:center;gap:10px;min-height:44px;margin:0}
+.btn{display:inline-flex;align-items:center;margin:0}.btn:focus-within{outline:3px solid var(--acc);outline-offset:2px}
+.bar{display:flex;flex-wrap:wrap;gap:8px 12px;align-items:end;margin:8px 0}
+.bar>label:not(.ck,.btn){flex:1 1 160px;margin:0}
+.two{display:grid;grid-template-columns:1fr 1fr;gap:0 10px}
+.head{display:flex;flex-wrap:wrap;justify-content:space-between;align-items:center;gap:4px 12px}
+.card{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:12px 14px;margin:0 0 12px}
+.note{background:var(--note)}.warn{background:var(--warnbg);color:var(--warn)}
+.mu{color:var(--mu)}
+.chip{display:inline-block;font-size:.8rem;line-height:1.5;padding:0 8px;margin:1px 0;border-radius:99px;background:var(--chip);color:var(--fg)}
+.chip.ok{background:var(--okbg);color:var(--ok)}
+.cd{font-weight:700}.cd.urgent{color:var(--dl)}.cd.past{color:var(--mu);font-weight:400}
+.evs,.plain{list-style:none;margin:0 0 12px;padding:0}
+.ev{display:flex;gap:12px;padding:10px 12px;margin-bottom:6px;background:var(--card);border:1px solid var(--line);border-left:4px solid var(--ts);border-radius:10px}
+.ev>div{min-width:0}.ev.k-deadline{border-left-color:var(--dl)}.ev.k-interview{border-left-color:var(--iv)}
+.when{flex:0 0 5.6em;font-variant-numeric:tabular-nums;color:var(--mu)}
+.dayh{margin-top:16px}
+.links{display:flex;flex-wrap:wrap;gap:4px 18px;align-items:center;margin-top:4px}.links a,.links button{min-height:32px;display:inline-flex;align-items:center}
+details.co summary{cursor:pointer;list-style:none;display:grid;gap:2px;min-height:44px;position:relative;padding-right:28px}
+details.co summary::-webkit-details-marker{display:none}
+details.co summary::after{content:"+";position:absolute;right:0;top:0;font-size:1.4rem;line-height:1;color:var(--acc)}details.co[open] summary::after{content:"−"}
+details.co[open] summary{border-bottom:1px solid var(--line);padding-bottom:8px}
+.mine{color:var(--ok);font-weight:600}
+dl{display:grid;grid-template-columns:max-content 1fr;gap:4px 12px;margin:10px 0}dt{color:var(--mu)}dd{margin:0;overflow-wrap:anywhere}
+fieldset.role{border:1px solid var(--line);border-radius:10px;margin:12px 0;padding:4px 12px 8px;min-width:0}
+legend{font-weight:700;padding:0 4px}
+.grid{display:grid;grid-template-columns:repeat(7,minmax(0,1fr));gap:4px;margin:4px 0 12px}
+.wd{text-align:center;font-size:.75rem;color:var(--mu)}
+.grid button{min-height:48px;padding:4px 0;border:1px solid var(--line);background:var(--card);color:var(--fg);border-radius:8px;display:flex;flex-direction:column;align-items:center;gap:2px;font-variant-numeric:tabular-nums}
+.grid button.today{border:2px solid var(--acc);font-weight:700}.grid button[aria-pressed=true]{background:var(--acc);color:var(--on)}
+.dots{display:flex;gap:3px;min-height:6px}.dot{width:6px;height:6px;border-radius:50%;background:var(--ts)}.dot.k-deadline{background:var(--dl)}.dot.k-interview{background:var(--iv)}
+.code{font:700 1.1rem ui-monospace,Consolas,monospace;letter-spacing:.04em;overflow-wrap:anywhere}
+.vh{position:absolute;width:1px;height:1px;overflow:hidden;clip-path:inset(50%);white-space:nowrap}
+meter{width:100%;height:12px}
+.pct{font-weight:700;font-variant-numeric:tabular-nums}
+ul.dsa{list-style:none;padding:0;margin:0 0 12px}ul.dsa li{display:flex;flex-wrap:wrap;align-items:center;gap:4px 10px;border-bottom:1px solid var(--line)}ul.dsa li label{flex:1 1 200px}
+ul.dsa a{min-height:44px;display:inline-flex;align-items:center}
+#d-due li{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin:6px 0}#d-due li span{flex:1 1 160px}
+#qr{display:block;margin:8px 0;image-rendering:pixelated;background:#fff;padding:4px}
+@media (prefers-reduced-motion:reduce){*,::before,::after{animation:none!important;transition:none!important;scroll-behavior:auto!important}}
+[hidden]{display:none!important}
+</style>
+<script type="importmap">{"imports":{},"integrity":{"./core.js":"sha384-o8lGUl5w19NI7tz/ruc61LQ/4jziMJiTBv2YnOqJvVK8oA630DU6tC9wIVKrNqZ7","./vendor/pdf.min.mjs":"sha384-+0ti2moQlmLN7WZHE2RHIf5lV8hHxhxEalN0il3YZceG26fUPyOkR0hp9daxk1i7","./vendor/qrcode.mjs":"sha384-xHtsZTi0cOhTiha4kloGDUR5e5A8ixkKsF1Mmpqq3tkDpAhkA4YOKIDua/Tc0Ecd"}}</script>
+<link rel="modulepreload" href="core.js">
+<script type="module" src="app.js" integrity="sha384-ev+eSKx2oVltNbXur5wOqt/2RveV3dxhV/qSQ/7hpueC42sVgHNh5OGZFqNf7Wxh"></script>
+</head>
+<body>
+<header class="top"><h1>Placement HQ</h1><span id="upd" class="mu"></span></header>
+<nav id="nav" aria-label="Sections" hidden><button data-v="home">Home</button><button data-v="companies">Companies</button><button data-v="calendar">Calendar</button><button data-v="shortlists">Shortlists</button><button data-v="cv">CV</button><button data-v="dsa">DSA</button><button data-v="settings">Settings</button></nav>
+<main>
+<p id="boot" class="mu">Opening…</p>
+<noscript><p>Placement HQ needs JavaScript.</p></noscript>
+
+<section id="lock" hidden aria-labelledby="h-lock">
+<h2 id="h-lock">Locked</h2>
+<p id="lock-msg"></p>
+<p>Ask your batch's placement representative for the link.</p>
+<form id="lock-form"><label>Paste the link here <input id="lock-in" autocomplete="off" spellcheck="false"></label><button>Open</button></form>
+</section>
+
+<section id="v-home" hidden aria-label="Home"></section>
+
+<section id="v-companies" hidden aria-labelledby="h-co">
+<div class="head"><h2 id="h-co">Companies</h2><span id="co-n" class="mu"></span></div>
+<div class="bar"><label>Search <input id="q" type="search" autocomplete="off"></label><label>Track <select id="trk"><option value="">All tracks</option><option>HPC</option><option>AIML</option><option>SW</option><option>DS</option><option>HARDWARE</option><option>EMBEDDED</option><option>MECH</option><option>OTHER</option></select></label><label class="ck"><input id="mine" type="checkbox"> My roles</label></div>
+<div id="co-list"></div>
+</section>
+
+<section id="v-calendar" hidden aria-labelledby="mon">
+<div class="head"><button class="ghost" data-act="m-1" aria-label="Previous month">‹</button><h2 id="mon" aria-live="polite"></h2><button class="ghost" data-act="m+1" aria-label="Next month">›</button></div>
+<div id="grid" class="grid"></div>
+<div class="bar"><label class="ck"><input id="calMine" type="checkbox"> Only my roles</label><button class="ghost" data-act="icsAll">Export all (.ics)</button></div>
+<h3 id="cal-h"></h3>
+<div id="cal-list"></div>
+</section>
+
+<section id="v-shortlists" hidden aria-labelledby="h-sl">
+<h2 id="h-sl">Shortlists and schedules</h2>
+<p>Paste a tab from the OCCaP sheet (select all its cells, copy, paste here). Schedules go into your calendar; shortlists are checked for your name, email or SR number. Only the schedule rows and your own matches are kept, and the pasted text is cleared.</p>
+<div id="sl-ids"></div>
+<label>This tab is <select id="sk"><option value="">Detect from its headers</option><option>Test schedule</option><option>Interview schedule</option><option>Test shortlist</option><option>Interview shortlist</option></select></label>
+<label>Pasted tab <textarea id="sp" rows="6" spellcheck="false"></textarea></label>
+<button data-act="sheet">Check</button>
+<div id="sl-res" role="status"></div>
+<h3>Saved from earlier pastes</h3>
+<div id="sl-saved"></div>
+</section>
+
+<section id="v-cv" hidden aria-labelledby="h-cv">
+<h2 id="h-cv">CV match</h2>
+<p>See which job descriptions your CV covers best and which keywords it misses. The CV is read on this device; nothing is uploaded.</p>
+<label>CV as PDF <input id="cvf" type="file" accept="application/pdf,.pdf"></label>
+<label>Or paste its text <textarea id="cvt" rows="5" spellcheck="false"></textarea></label>
+<div class="bar"><button data-act="cv">Score my CV</button><button class="ghost" data-act="cvdel">Remove saved CV</button></div>
+<p id="cv-msg" class="mu" role="status"></p>
+<label>Filter job descriptions <input id="cvq" type="search" autocomplete="off"></label>
+<ol id="cv-list" class="plain"></ol>
+<button class="ghost" id="cvmore" data-act="cvmore" hidden>Show all</button>
+</section>
+
+<section id="v-dsa" hidden aria-labelledby="h-dsa">
+<h2 id="h-dsa">DSA practice</h2>
+<p id="d-sum" class="mu"></p>
+<h3>Due for review</h3>
+<ul id="d-due" class="plain"></ul>
+<div class="bar"><label>Show <select id="df"><option value="">All problems</option><option value="todo">To do</option><option value="done">Done</option><option value="revisit">Revisit</option></select></label><label>Search <input id="dq" type="search" autocomplete="off"></label></div>
+<div id="d-list"></div>
+</section>
+
+<section id="v-settings" hidden aria-labelledby="h-set">
+<h2 id="h-set">Settings</h2>
+<div class="card"><h3>My identifiers</h3>
+<p class="mu">Used only to find your own rows when you paste a shortlist. Stored on this device (and inside your encrypted sync, if you turn it on).</p>
+<label>Names, one per line <textarea id="idn" rows="2" autocomplete="name"></textarea></label>
+<label>Emails <textarea id="ide" rows="2" autocomplete="email"></textarea></label>
+<label>SR numbers <textarea id="idsr" rows="2"></textarea></label>
+<button data-act="ids">Save identifiers</button> <span id="idmsg" class="mu" role="status"></span></div>
+<div class="card"><h3>Sync your devices</h3><div id="sync"></div><p class="mu">Relay: <span id="relay"></span></p></div>
+<div class="card"><h3>Encrypted backup</h3>
+<p class="mu">A file encrypted with your passphrase (PBKDF2, 600,000 rounds, AES-GCM). Also the way to move your data to another device while live sync is off.</p>
+<label>Passphrase <input id="bpw" type="password" autocomplete="new-password"></label>
+<div class="bar"><button data-act="bexp">Export encrypted backup</button><label class="btn">Import backup<input id="bimp" class="vh" type="file" accept=".json,application/json"></label></div>
+<p id="bmsg" class="mu" role="status"></p></div>
+<div class="card"><h3>This device</h3>
+<div class="bar"><button class="ghost" data-act="csv">Export my roles (CSV)</button><button class="ghost" data-act="link">Copy the batch link</button><button class="bad" data-act="wipe">Delete everything on this device</button></div>
+<p id="dmsg" class="mu" role="status"></p></div>
+<div class="card"><h3>About and privacy</h3>
+<p>The company feed is encrypted with your batch's key, which travels in the link after the # (browsers never send that part to a server). The key is membership gating, so the feed is "not public"; it is not a secret, since anyone in the batch can pass the link on.</p>
+<p>Your personal data (statuses, notes, CV text, identifiers, pasted schedules) stays on this device. It leaves only as ciphertext: in a backup file you export, or through the sync relay if you turn sync on, which stores a blob it cannot read.</p>
+<p>No accounts, no analytics, no third-party scripts or fonts. Shortlist checks keep only your own matches and the schedule rows, never other students' names. The CV match runs here.</p>
+<p>Not an official OCCaP service: always confirm dates from the OCCaP mail.</p></div>
+</section>
+</main>
+</body>
+</html>
