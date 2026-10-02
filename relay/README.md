@@ -7,7 +7,7 @@ with HKDF under different labels, so the relay can look a blob up but cannot rea
 ## API
 
 | Request | Result |
-|---|---|
+| --- | --- |
 | `GET /v1/b/:id` (64 hex) | `200 {ver, data}`, `404` if none, `304` when `If-None-Match` equals the stored `ver` |
 | `PUT /v1/b/:id` body `{base, data}` | `200 {ver}` when `base` equals the stored `ver` (or no row and `base` is 0); else `409 {ver, data}` |
 | | `413` if `data` (base64url) is over 256 KB, `429` after 120 writes in an hour for that id, `400` for a bad body |
@@ -35,5 +35,10 @@ inside the limit. Blobs are capped at 256 KB.
 
 ## Local test
 
-`node ../test.mjs` runs this handler against an in-memory D1 stub. `npx wrangler dev` also serves it locally
-(after `npx wrangler d1 execute hq-relay --local --file=schema.sql`).
+`node ../test.mjs` runs this handler against an in-memory D1 stub. Wrangler also runs it locally without a
+Cloudflare login:
+
+```sh
+npx wrangler d1 execute hq-relay --local --file=schema.sql
+npx wrangler dev --local --port 8787 --var ORIGIN:http://localhost:4400
+```
