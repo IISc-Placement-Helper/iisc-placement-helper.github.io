@@ -415,7 +415,7 @@ const link = s => new URLSearchParams(s.includes('#') ? s.split('#')[1] : 'k=' +
 $('#lock-form').addEventListener('submit', e => {
   e.preventDefault();
   const p = link($('#lock-in').value.trim()), k = p.get('k'), s = p.get('sync');
-  if (!k) { $('#lock-msg').textContent = 'That does not look like the batch link. Paste the whole link.'; return; }
+  if (!/^[\w-]{22}$/.test(k || '')) { $('#lock-msg').textContent = 'That does not look like the batch link. Paste the whole link.'; return; }
   ls('k', k); $('#lock-in').value = '';
   unlock().then(ok => ok && s && joinPrompt(s));
 });
