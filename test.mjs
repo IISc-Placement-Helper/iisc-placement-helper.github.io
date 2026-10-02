@@ -1,9 +1,10 @@
-// node test.mjs  (no deps, fixed timestamps).
+// node test.mjs  (no deps, fixed timestamps). HQ_FEED=<feed.json> adds checks against a real feed, which is never committed.
+// node test.mjs --fix rewrites the CSP and SRI hashes in index.html after editing its CSS, app.js, core.js or vendor/.
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync, writeFileSync, existsSync, mkdtempSync } from 'node:fs';
 import { createHash } from 'node:crypto';
-import { execFileSync } from 'node:child_process';
+import { spawnSync } from 'node:child_process';
 import { tmpdir } from 'node:os';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -12,6 +13,15 @@ import relay from './relay/worker.js';
 
 const ROOT = dirname(fileURLToPath(import.meta.url)), rd = f => readFileSync(join(ROOT, f));
 const NOW = Date.parse('2026-09-23T09:00:00+05:30');
+const sha = (alg, s) => alg + '-' + createHash(alg).update(s).digest('base64');
+const STYLE = /<style>([\s\S]*?)<\/style>/, MAP = /<script type="importmap">([\s\S]*?)<\/script>/;
+if (process.argv.includes('--fix')) {
+  let html = rd('index.html').toString();
+  html = html.replace(MAP, (_, m) => { const j = JSON.parse(m); for (const u of Object.keys(j.integrity)) j.integrity[u] = sha('sha384', rd(u)); return `<script type="importmap">${JSON.stringify(j)}</script>`; });
+  html = html.replace(/(src="app\.js" integrity=")[^"]*/, '$1' + sha('sha384', rd('app.js')));
+  html = html.replace(/script-src [^;]*/, `script-src 'self' '${sha('sha256', MAP.exec(html)[1])}'`).replace(/style-src [^;]*/, `style-src '${sha('sha256', STYLE.exec(html)[1])}'`);
+  writeFileSync(join(ROOT, 'index.html'), html);
+}
 
 const FEED = { companies: [
   { slug: 'acme', company: 'Acme', kind: 'company', deadline: '2026-09-24T13:00:00+05:30', test: { date: '2026-09-28', time: '18:00-20:00', mode: 'Virtual', confirmed: true },
@@ -410,4 +420,50 @@ test('relay: 200/304/404/409/413/429, CORS', async () => {
   assert.equal((await call('GET', '/v1/b/' + id, { origin: 'https://evil.example.com' })).status, 403);
   r = await call('GET', '/v1/b/' + id, { origin: null });
   assert.equal(r.status, 200); assert.equal(r.headers.get('access-control-allow-origin'), null, 'no Origin (curl): served without CORS headers');
+});
+
+test('publish: privacy check required, *_raw stripped, leaks refused', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'hq-test-')), w = (f, s) => { writeFileSync(join(dir, f), s); return join(dir, f); };
+  const ok = w('ok.cjs', 'process.exit(0)'), bad = w('bad.cjs', 'process.exit(1)'), key = A.newBatchKey(), out = join(dir, 'out.json');
+  const feed = { companies: [Object.assign({ notes_raw: 'unreviewed text' }, FEED.companies[0])], jds: [], skills: [], dsa: [] };
+  const src = w('in.json', JSON.stringify(feed));
+  const run = (...a) => spawnSync(process.execPath, [join(ROOT, 'tools/publish.mjs'), '--key', key, '--out', out, ...a], { encoding: 'utf8' });
+  assert.notEqual(run('--feed', src).status, 0, '--check is required'); assert.ok(!existsSync(out));
+  assert.notEqual(run('--feed', src, '--check', bad).status, 0, 'a failing check stops it'); assert.ok(!existsSync(out));
+  for (const text of ['write to someone@example.com', 'call +91 98450 00000', 'C:\\Users\\x\\cv.pdf', 'ring 9845000000']) {
+    const r = run('--feed', w('leak.json', JSON.stringify(Object.assign({}, feed, { jds: [{ id: 'a', label: 'a', text }] }))), '--check', ok);
+    assert.match(r.stderr, /looks private/, text); assert.ok(!existsSync(out));
+  }
+  const r = run('--feed', src, '--check', ok);
+  assert.equal(r.status, 0, r.stderr);
+  const dec = await A.openFeed(key, JSON.parse(readFileSync(out, 'utf8')));
+  assert.equal(dec.companies[0].notes_raw, undefined, '*_raw dropped'); assert.equal(dec.companies[0].company, 'Acme');
+});
+
+test('index.html: CSP and SRI hashes match the files; nothing third-party; precache list exists', () => {
+  const html = rd('index.html').toString(), csp = /http-equiv="Content-Security-Policy" content="([^"]+)"/.exec(html)[1];
+  assert.ok(csp.includes(`style-src '${sha('sha256', STYLE.exec(html)[1])}'`), 'style hash (run node test.mjs --fix)');
+  assert.ok(csp.includes(`script-src 'self' '${sha('sha256', MAP.exec(html)[1])}'`), 'import map hash');
+  for (const [u, h] of Object.entries(JSON.parse(MAP.exec(html)[1]).integrity)) assert.equal(h, sha('sha384', rd(u)), 'SRI ' + u);
+  assert.equal(/src="app\.js" integrity="([^"]+)"/.exec(html)[1], sha('sha384', rd('app.js')), 'SRI app.js');
+  assert.doesNotMatch(csp, /https?:|\*|unsafe/, 'only self, hashes, blob: and data:');
+  assert.doesNotMatch(html, /<(script|link|img)[^>]+(src|href)="(https?:)?\/\//, 'no third-party scripts, styles, fonts or images');
+  const man = JSON.parse(rd('manifest.webmanifest'));
+  for (const i of man.icons) assert.ok(existsSync(join(ROOT, i.src)), i.src);
+  const shell = JSON.parse(/SHELL = (\[[^\]]*\])/.exec(rd('sw.js').toString())[1].replace(/'/g, '"'));
+  for (const f of shell) assert.ok(existsSync(join(ROOT, f === './' ? 'index.html' : f)), 'precache ' + f);
+});
+
+test('real feed (HQ_FEED, local only)', { skip: !process.env.HQ_FEED && 'set HQ_FEED=<feed.json> to run' }, async () => {
+  const f = JSON.parse(readFileSync(process.env.HQ_FEED, 'utf8')), evs = A.events(f, {});
+  assert.ok(evs.length > 10 && evs.every(e => /^\d{4}-\d\d-\d\d$/.test(e.date) && !isNaN(e.when)), 'events parse');
+  assert.equal(new Set(evs.map(e => e.uid)).size, evs.length, 'unique uids');
+  assert.ok(A.buildIcs(A.icsSeq({}, A.calItems(evs)).items).split('\r\n').every(l => l.length <= 75));
+  const dict = A.buildDict(f.skills), jds = f.jds.map(j => ({ id: j.id, label: j.label, kws: A.atsKeywords(j.text, dict) }));
+  assert.ok(jds.every(j => j.kws.length > 0), 'every JD yields keywords');
+  const top = A.atsRank(jds, 'C++ CUDA MPI OpenMP GPU kernels Linux performance profiling parallel computing HPC').slice(0, 5);
+  assert.ok(top[0].pct > A.atsRank(jds, 'Excel PowerPoint')[0].pct, 'a systems CV outranks an empty one');
+  const key = A.newBatchKey(), enc = await A.sealFeed(key, f);
+  assert.deepEqual(await A.openFeed(key, enc), f);
+  console.log(`  real feed: ${f.companies.length} entries, ${evs.length} events, ${jds.length} JDs, ${(JSON.stringify(enc).length / 1024).toFixed(0)} KB encrypted; top match ${top[0].label} ${top[0].pct}%`);
 });
