@@ -1,0 +1,48 @@
+# Deploys the site: code from git, the encrypted feed from the `feed` release asset (never from git).
+# Runs on every push to main and when tools/publish.mjs --upload triggers it.
+name: pages
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+concurrency:
+  group: pages
+  cancel-in-progress: true
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deploy.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: node test.mjs
+      - name: Assemble the site
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELAY_URL: ${{ vars.RELAY_URL }}
+        run: |
+          mkdir _site
+          cp -r index.html app.js core.js sw.js manifest.webmanifest icons vendor LICENSE _site/
+          gh release download feed --repo "$GITHUB_REPOSITORY" --pattern feed.enc.json --dir _site || echo "No feed release yet: the site shows its locked screen."
+          if [ -n "$RELAY_URL" ]; then
+            RELAY_URL="${RELAY_URL%/}"
+            sed -i "s#connect-src 'self'#connect-src 'self' $RELAY_URL#; s#<meta name=\"relay\" content=\"\">#<meta name=\"relay\" content=\"$RELAY_URL\">#" _site/index.html
+          fi
+          # New shell cache name whenever the shell changes, so installed apps pick up the new version.
+          V=$(cat _site/index.html _site/app.js _site/core.js _site/manifest.webmanifest | sha256sum | cut -c1-12)
+          sed -i "s/const V = 'hq-dev'/const V = 'hq-$V'/" _site/sw.js
+          touch _site/.nojekyll
+      - uses: actions/configure-pages@v5
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: _site
+      - id: deploy
+        uses: actions/deploy-pages@v4
