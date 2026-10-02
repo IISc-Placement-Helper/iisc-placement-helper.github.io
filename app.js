@@ -250,6 +250,7 @@ V.settings = () => {
 
 function draw() { if (FEED) V[VIEW](); }
 function show(v) {
+  if (!FEED) return; // locked: no views without the feed
   VIEW = VIEWS.includes(v) ? v : 'home';
   ls('view', VIEW);
   for (const x of VIEWS) $('#v-' + x).hidden = x !== VIEW;
