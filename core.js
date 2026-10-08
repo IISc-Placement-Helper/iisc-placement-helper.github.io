@@ -416,6 +416,25 @@ export function atsScore(kws, resumeText) {
 export const atsRank = (jds, text) => jds.map(j => Object.assign({ id: j.id, label: j.label }, atsScore(j.kws, text)))
   .sort((a, b) => b.pct - a.pct || b.hit.length - a.hit.length || (a.label < b.label ? -1 : 1));
 
+/* ---------------------------------------------------------------- JD texts (feed.jd_docs: [{slug, company, file, text}]) */
+// Docs of one company (or all) whose company, file name or text contain every word of q, in any case.
+export function jdFilter(docs, q, slug) {
+  const ws = String(q || '').toLowerCase().split(/\s+/).filter(Boolean);
+  return (docs || []).filter(d => (!slug || d.slug === slug) && (!ws.length || (h => ws.every(w => h.includes(w)))((d.company + ' ' + d.file + ' ' + d.text).toLowerCase())));
+}
+// [{slug, company, docs}], companies in order of first appearance.
+export function jdGroups(docs) {
+  const by = new Map();
+  for (const d of docs || []) (by.get(d.slug) || by.set(d.slug, { slug: d.slug, company: d.company, docs: [] }).get(d.slug)).docs.push(d);
+  return [...by.values()];
+}
+// Escaped text with http(s) URLs as links; trailing punctuation stays outside the link.
+export const linkify = text => String(text || '').split(/(https?:\/\/[^\s<>"']+)/).map((s, i) => {
+  if (!(i % 2)) return esc(s);
+  const [, url, tail] = /^(.*?)([.,;:!?)\]]*)$/.exec(s);
+  return `<a href="${esc(url)}" target="_blank" rel="noopener">${esc(url)}</a>${esc(tail)}`;
+}).join('');
+
 /* ---------------------------------------------------------------- crypto (WebCrypto: browser and Node) */
 const te = new TextEncoder(), td = new TextDecoder(), sub = () => globalThis.crypto.subtle;
 export const rnd = n => globalThis.crypto.getRandomValues(new Uint8Array(n));

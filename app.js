@@ -2,7 +2,7 @@
 import * as C from './core.js';
 
 const $ = s => document.querySelector(s), $$ = s => [...document.querySelectorAll(s)], esc = C.esc, KIND = C.KIND;
-const VIEWS = ['home', 'companies', 'calendar', 'shortlists', 'cv', 'dsa', 'settings'];
+const VIEWS = ['home', 'companies', 'jds', 'calendar', 'shortlists', 'cv', 'dsa', 'settings'];
 const LABEL = { not_applied: 'Not applied', applied: 'Applied', shortlisted: 'Shortlisted', test_scheduled: 'Test scheduled', test_done: 'Test done',
   interview_scheduled: 'Interview scheduled', interview_done: 'Interview done', offer: 'Offer', rejected: 'Rejected', withdrawn: 'Withdrawn', not_eligible: 'Not eligible' };
 const ls =(k, v) => { try { if (v === undefined) return localStorage.getItem('hq:' + k); if (v === null) localStorage.removeItem('hq:' + k); else localStorage.setItem('hq:' + k, v); } catch { return null; } };
@@ -140,6 +140,25 @@ function roleBox(c, r) {
     <div class="two"><label>Interview date <input type="date" ${a('interview_date')} value="${v('interview_date')}"></label><label>Interview time <input type="time" ${a('interview_time')} value="${v('interview_time')}"></label></div>
     <label>Notes <textarea rows="2" ${a('notes')}>${v('notes')}</textarea></label></fieldset>`;
 }
+
+// The full text of every JD/JAF file; bodies fill in when opened, and only the first 40 matches show until "Show all".
+V.jds = () => {
+  const all = FEED.jd_docs || [], sel = $('#jdc'), more = $('#jdmore');
+  $('#jd-bar').hidden = !all.length;
+  if (!all.length) { $('#jd-n').textContent = ''; $('#jd-list').innerHTML = '<p class="mu">No JD texts in this feed yet.</p>'; more.hidden = true; return; }
+  if (!sel.options.length) sel.innerHTML = '<option value="">All companies</option>' + C.jdGroups(all).sort((a, b) => a.company.localeCompare(b.company))
+    .map(g => `<option value="${esc(g.slug)}">${esc(g.company)} (${g.docs.length})</option>`).join('');
+  const list = C.jdFilter(all, $('#jdq').value.trim(), sel.value), shown = more.dataset.all ? list : list.slice(0, 40);
+  const was = $$('#jd-list details[open]').map(d => d.dataset.i);
+  $('#jd-n').textContent = `${list.length} of ${all.length} documents${shown.length < list.length ? `, first ${shown.length} shown` : ''}`;
+  $('#jd-list').innerHTML = C.jdGroups(shown).map(g => `<h3>${esc(g.company)}</h3>${BY[g.slug] ? jdCo(BY[g.slug]) : ''}${g.docs.map(d => {
+    const i = String(all.indexOf(d)), open = was.includes(i);
+    return `<details class="card jd" data-i="${i}"${open ? ' open' : ''}><summary><b>${esc(d.file)}</b><span class="mu">${esc(d.company)}</span></summary><div class="jdt">${open ? C.linkify(d.text) : ''}</div></details>`;
+  }).join('')}`).join('') || '<p class="mu">No documents match.</p>';
+  more.hidden = shown.length === list.length;
+};
+const jdCo = c => `<div class="links"><span class="mu">${[c.deadline && `Deadline ${esc(fWhen(c.deadline))} IST, ${cdSpan(c.deadline)}`, c.ctc && 'CTC ' + esc(c.ctc)]
+  .filter(Boolean).join(' · ')}</span><button class="link" data-act="coopen" data-slug="${esc(c.slug)}">Open in Companies</button></div>`;
 
 const calList = () => evs().filter(e => (!$('#calMine').checked || e.mine) && e.short !== 'no');
 V.calendar = () => {
@@ -328,6 +347,15 @@ async function drawQr() {
 const lines = id => $(id).value.split(/[\n,;]+/).map(s => s.trim()).filter(Boolean);
 const ACT = {
   go: b => show(b.dataset.v),
+  // From a JD: the Companies view searched for that company, its card open.
+  coopen: b => {
+    const c = BY[b.dataset.slug];
+    $('#q').value = c.company; $('#trk').value = ''; $('#mine').checked = false;
+    show('companies');
+    const d = $$('#co-list details.co').find(x => x.dataset.slug === c.slug);
+    if (d) { d.open = true; d.scrollIntoView({ block: 'center' }); d.querySelector('summary').focus({ preventScroll: true }); }
+  },
+  jdmore: b => { b.dataset.all = '1'; V.jds(); },
   seen: () => { setRec('seen', null, { feedUpdated: FEED.updated, keys: C.feedKeys(FEED) }); CHANGES = []; V.home(); },
   nohint: () => { ls('nohint', '1'); V.home(); },
   install: () => { if (DEFER) DEFER.prompt(); DEFER = null; V.home(); },
@@ -411,6 +439,7 @@ document.addEventListener('change', e => {
     return;
   }
   if (t.id === 'trk' || t.id === 'mine') V.companies();
+  else if (t.id === 'jdc') V.jds();
   else if (t.id === 'calMine') V.calendar();
   else if (t.id === 'homeMine') { ls('homeAll', t.checked ? null : '1'); V.home(); }
   else if (t.id === 'df') V.dsa();
@@ -424,14 +453,15 @@ document.addEventListener('change', e => {
 });
 let debT = 0;
 document.addEventListener('input', e => {
-  const f = { q: V.companies, dq: V.dsa, cvq: scoreCv }[e.target.id];
+  const f = { q: V.companies, jdq: V.jds, dq: V.dsa, cvq: scoreCv }[e.target.id];
   if (f) { clearTimeout(debT); debT = setTimeout(f, 150); }
 });
-// Company cards fill in when opened; the QR is drawn when shown.
+// Company cards and JD texts fill in when opened; the QR is drawn when shown.
 document.addEventListener('toggle', e => {
   const d = e.target;
   if (!d.open) return;
   if (d.matches('details.co')) { const b = d.querySelector('.body'); if (!b.innerHTML) b.innerHTML = coBody(BY[d.dataset.slug]); }
+  if (d.matches('details.jd')) { const b = d.querySelector('.jdt'); if (!b.innerHTML) b.innerHTML = C.linkify(FEED.jd_docs[d.dataset.i].text); }
   if (d.id === 'qrbox') drawQr();
 }, true);
 const link = s => new URLSearchParams(s.includes('#') ? s.split('#')[1] : 'k=' + s); // a pasted link, a location.hash or a bare key
@@ -460,7 +490,7 @@ async function unlock() {
   catch { return lock('The feed could not be loaded. Check your connection and reload.'); }
   try { FEED = await C.openFeed(key, file); }
   catch { return lock('This link does not open the current feed. It may be old or incomplete.'); }
-  FEED.updated = file.updated; BY = Object.fromEntries(FEED.companies.map(c => [c.slug, c])); KWS = null;
+  FEED.updated = file.updated; BY = Object.fromEntries(FEED.companies.map(c => [c.slug, c])); KWS = null; $('#jdc').textContent = '';
   $('#upd').textContent = 'Feed updated ' + fWhen(file.updated) + (navigator.onLine ? '' : ' (offline copy)');
   const keys = C.feedKeys(FEED);
   if (!S.seen) setRec('seen', null, { feedUpdated: file.updated, keys });

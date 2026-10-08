@@ -1,9 +1,9 @@
 # Placement HQ
 
 Your placement season on one screen: every OCCaP form with a live countdown, your tests and interviews, a
-calendar that feeds your phone's alarms, a shortlist checker for the OCCaP sheet, a CV-to-JD match, and a DSA
-review queue. It runs in the browser, installs like an app on Android, iPhone and laptops, works offline, and
-keeps your data on your own devices.
+calendar that feeds your phone's alarms, a shortlist checker for the OCCaP sheet, the full text of every JD, a
+CV-to-JD match, and a DSA review queue. It runs in the browser, installs like an app on Android, iPhone and
+laptops, works offline, and keeps your data on your own devices.
 
 **Site:** https://iisc-placement-helper.github.io (it opens only with your batch's link; see step 1).
 
@@ -36,6 +36,7 @@ Not an official OCCaP service: always confirm dates in the OCCaP mail.
 | --- | --- |
 | **Home** | The next 7 days: form deadlines with countdowns, your tests and interviews, a warning if two of them clash, and "what changed since your last visit" (new forms, moved deadlines, new test dates). |
 | **Companies** | Search or filter by track (HPC, AIML, SW, DS, HARDWARE, EMBEDDED, MECH, OTHER) or **My roles**. Each card has the deadline, roles, CTC and location where announced, process, notes from the OCCaP mails, and test/interview details. Set status, notes and dates per role. |
+| **JDs** | The full text of every company's JD and JAF files: search all of them at once or pick one company. |
 | **Calendar** | Month view and list. Each item has **Add to Google Calendar** and **Download .ics**; **Export all (.ics)** adds every deadline, test and interview at once. |
 | **Shortlists** | Paste a tab of the OCCaP Excel sheet and press **Check**: schedules go into your calendar, and shortlists are checked for your name, email or SR number with one-click status updates (and undo). |
 | **CV** | Choose your CV as a PDF (or paste its text) and press **Score my CV**: every job description is ranked by keyword coverage, with the keywords you match and miss. |
@@ -56,6 +57,13 @@ On the OCCaP sheet, open the tab, select all its cells (Ctrl+A / ⌘A), copy, an
 The app detects whether it is a test schedule, interview schedule or shortlist from the headers (or choose it
 yourself). Only the schedule rows and **your own** matches are kept; the pasted text, including other
 students' names and emails, is discarded.
+
+### JDs
+The JDs tab holds the text of each company's job description and JAF files as the companies sent them, with email
+addresses and phone numbers removed. Type a few words (for example `python bangalore`) to find every document that
+contains all of them, or choose a company; tap a document to read it. The first 40 matches are listed until you press
+**Show all**, and **Open in Companies** jumps to that company's card. Scanned (image-only) files have no text and are
+not listed: the OCCaP mail has the originals.
 
 ### CV match
 The PDF is read on your device (pdf.js, bundled with the site); nothing is uploaded. Scanned (image-only) PDFs
@@ -129,7 +137,7 @@ Everything below is for whoever maintains the site and its feed.
 | File | What it is |
 | --- | --- |
 | `index.html` | The shell and all CSS; CSP and SRI hashes live here |
-| `core.js` | Pure logic shared by the app, the publisher and the tests: events, ICS, sheet parsing, shortlist detection, merge, spaced repetition, CV match, crypto |
+| `core.js` | Pure logic shared by the app, the publisher and the tests: events, ICS, sheet parsing, shortlist detection, merge, spaced repetition, CV match, JD search, crypto |
 | `app.js` | UI, on-device storage, feed decryption, sync client |
 | `sw.js` | Service worker: shell precached, `vendor/` cached on first use, feed network-first |
 | `manifest.webmanifest`, `icons/` | Install metadata and the "HQ" icon |
@@ -164,7 +172,8 @@ node tools/publish.mjs --feed <feed.json> --check <checker.js> --upload --site h
 
 Feed shape: `{companies: [{slug, company, deadline, max_roles, poc[], ctc, location, test, interview, kind,
 process[], info, roles: [{title, track, ctc, location, eligibility}]}], jds: [{id, label, text}], skills: [],
-dsa: [{problem, topic, difficulty, pattern}]}`.
+dsa: [{problem, topic, difficulty, pattern}], jd_docs: [{slug, company, file, text}]}`. `jd_docs` is optional: a
+feed without it shows "No JD texts in this feed yet" on the JDs tab.
 
 ## Live sync (GitHub Gist)
 

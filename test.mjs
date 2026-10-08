@@ -309,6 +309,30 @@ test('CV match: dictionary hits, frequent words, score, ranking', () => {
   assert.deepEqual(A.atsRank(jds, 'C++ CUDA MPI kernels Nsight Compute').map(r => r.id), ['b::HPC', 'a::DS']);
 });
 
+test('JD texts: search, company filter, grouping, escaped links', () => {
+  const docs = [{ slug: 'acme', company: 'Acme', file: 'FT JD', text: 'C++ and CUDA in Bangalore' }, { slug: 'acme', company: 'Acme', file: 'JAF', text: 'CTC 20 LPA' },
+    { slug: 'zed', company: 'Zed Labs', file: 'Data Scientist', text: 'Python, SQL. Pune.' }];
+  const files = (q, slug) => A.jdFilter(docs, q, slug).map(d => d.file);
+  assert.deepEqual(files(''), ['FT JD', 'JAF', 'Data Scientist'], 'no query: all, in order');
+  assert.deepEqual(files('cuda'), ['FT JD'], 'text, any case');
+  assert.deepEqual(files('jaf'), ['JAF'], 'file name');
+  assert.deepEqual(files('ZED'), ['Data Scientist'], 'company');
+  assert.deepEqual(files('  bangalore   c++ '), ['FT JD'], 'every word, anywhere in the doc');
+  assert.deepEqual(files('cuda pune'), [], 'all words in one doc');
+  assert.deepEqual(files('', 'zed'), ['Data Scientist'], 'one company');
+  assert.deepEqual(files('cuda', 'zed'), []);
+  assert.deepEqual(A.jdFilter(undefined, 'x'), [], 'older feed without jd_docs');
+  assert.deepEqual(A.jdGroups(docs).map(g => [g.slug, g.company, g.docs.map(d => d.file)]), [['acme', 'Acme', ['FT JD', 'JAF']], ['zed', 'Zed Labs', ['Data Scientist']]]);
+  assert.deepEqual(A.jdGroups([docs[2], docs[0], docs[1]]).map(g => g.slug), ['zed', 'acme'], 'companies in order of first appearance');
+  assert.deepEqual(A.jdGroups(undefined), []);
+  const a = u => `<a href="${u}" target="_blank" rel="noopener">${u}</a>`;
+  assert.equal(A.linkify('Apply at https://example.com/jobs?a=1&b=2. <b>Now</b>'), `Apply at ${a('https://example.com/jobs?a=1&amp;b=2')}. &lt;b&gt;Now&lt;/b&gt;`, 'text escaped, & in the link too');
+  assert.equal(A.linkify('(see http://x.org/a), then\nnext'), `(see ${a('http://x.org/a')}), then\nnext`, 'trailing punctuation outside the link');
+  assert.equal(A.linkify('https://a.b/"onmouseover=x'), `${a('https://a.b/')}&quot;onmouseover=x`, 'a quote ends the link');
+  assert.equal(A.linkify('javascript:alert(1) ftp://x www.x.org'), 'javascript:alert(1) ftp://x www.x.org', 'only http(s) becomes a link');
+  assert.equal(A.linkify(null), '');
+});
+
 test('crypto: feed round trip, wrong key, tampering', async () => {
   const k = A.newBatchKey();
   assert.match(k, /^[A-Za-z0-9_-]{22}$/);
@@ -486,7 +510,9 @@ test('real feed (HQ_FEED, local only)', { skip: !process.env.HQ_FEED && 'set HQ_
   assert.ok(jds.every(j => j.kws.length > 0), 'every JD yields keywords');
   const top = A.atsRank(jds, 'C++ CUDA MPI OpenMP GPU kernels Linux performance profiling parallel computing HPC').slice(0, 5);
   assert.ok(top[0].pct > A.atsRank(jds, 'Excel PowerPoint')[0].pct, 'a systems CV outranks an empty one');
+  const docs = f.jd_docs || [];
+  assert.ok(docs.every(d => d.slug && d.company && d.file && d.text.length >= 200), 'JD texts complete');
   const key = A.newBatchKey(), enc = await A.sealFeed(key, f);
   assert.deepEqual(await A.openFeed(key, enc), f);
-  console.log(`  real feed: ${f.companies.length} entries, ${evs.length} events, ${jds.length} JDs, ${(JSON.stringify(enc).length / 1024).toFixed(0)} KB encrypted; top match ${top[0].label} ${top[0].pct}%`);
+  console.log(`  real feed: ${f.companies.length} entries, ${evs.length} events, ${jds.length} JDs, ${docs.length} JD texts, ${(JSON.stringify(enc).length / 1024).toFixed(0)} KB encrypted; top match ${top[0].label} ${top[0].pct}%`);
 });

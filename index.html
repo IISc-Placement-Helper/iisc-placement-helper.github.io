@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'sha256-1/OXXThdmop9rVrCs7Xkr2H8LG2+CvxWQQbgRWhxKg0='; style-src 'sha256-ScT3D6K5XfvRNuak54CziqMsyPR0Fx9s/GB635wwLqs='; img-src 'self' data:; connect-src 'self' https://api.github.com https://gist.githubusercontent.com; worker-src 'self' blob:; object-src 'none'; base-uri 'none'; form-action 'none'">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'sha256-jedq/ViWz9/1LnURtdCBAzjM2y+CQDQhu19lUnAIFCg='; style-src 'sha256-IEeA8nZBFE7P+VfYOBKEDduiBnQD6IxRCR0HYv5Cgzc='; img-src 'self' data:; connect-src 'self' https://api.github.com https://gist.githubusercontent.com; worker-src 'self' blob:; object-src 'none'; base-uri 'none'; form-action 'none'">
 <meta name="referrer" content="no-referrer">
 <meta name="color-scheme" content="light dark">
 <meta name="theme-color" content="#f4f5f7" media="(prefers-color-scheme: light)">
@@ -55,10 +55,12 @@ label.ck{display:flex;align-items:center;gap:10px;min-height:44px;margin:0}
 .when{flex:0 0 5.6em;font-variant-numeric:tabular-nums;color:var(--mu)}
 .dayh{margin-top:16px}
 .links{display:flex;flex-wrap:wrap;gap:4px 18px;align-items:center;margin-top:4px}.links a,.links button{min-height:32px;display:inline-flex;align-items:center}
-details.co summary{cursor:pointer;list-style:none;display:grid;gap:2px;min-height:44px;position:relative;padding-right:28px}
-details.co summary::-webkit-details-marker{display:none}
-details.co summary::after{content:"+";position:absolute;right:0;top:0;font-size:1.4rem;line-height:1;color:var(--acc)}details.co[open] summary::after{content:"−"}
-details.co[open] summary{border-bottom:1px solid var(--line);padding-bottom:8px}
+:is(details.co,details.jd) summary{cursor:pointer;list-style:none;display:grid;gap:2px;min-height:44px;position:relative;padding-right:28px}
+:is(details.co,details.jd) summary::-webkit-details-marker{display:none}
+:is(details.co,details.jd) summary::after{content:"+";position:absolute;right:0;top:0;font-size:1.4rem;line-height:1;color:var(--acc)}:is(details.co,details.jd)[open] summary::after{content:"−"}
+:is(details.co,details.jd)[open] summary{border-bottom:1px solid var(--line);padding-bottom:8px}
+.jdt{white-space:pre-wrap;overflow-wrap:anywhere;margin-top:10px;font-size:.95rem}
+#jd-list h3{margin:18px 0 2px}#jd-list .links{margin:0 0 8px}
 .mine{color:var(--ok);font-weight:600}
 dl{display:grid;grid-template-columns:max-content 1fr;gap:4px 12px;margin:10px 0}dt{color:var(--mu)}dd{margin:0;overflow-wrap:anywhere}
 fieldset.role{border:1px solid var(--line);border-radius:10px;margin:12px 0;padding:4px 12px 8px;min-width:0}
@@ -78,13 +80,13 @@ ul.dsa a{min-height:44px;display:inline-flex;align-items:center}
 #qr{display:block;margin:8px 0;image-rendering:pixelated;background:#fff;padding:4px}
 [hidden]{display:none!important}
 </style>
-<script type="importmap">{"imports":{},"integrity":{"./core.js":"sha384-ke5UlIsH5ubtUJRmoUiObisYSQXMI3SloSwg5i2ZW80a8q/iDI43bptcEo82KTPc","./vendor/pdf.min.mjs":"sha384-+0ti2moQlmLN7WZHE2RHIf5lV8hHxhxEalN0il3YZceG26fUPyOkR0hp9daxk1i7","./vendor/qrcode.mjs":"sha384-xHtsZTi0cOhTiha4kloGDUR5e5A8ixkKsF1Mmpqq3tkDpAhkA4YOKIDua/Tc0Ecd"}}</script>
+<script type="importmap">{"imports":{},"integrity":{"./core.js":"sha384-t/TGDj1LhV/qSr2PQfQ5J0JeK9Q+ZzSYNGyg2HY+eYMkwNaGBbVbf7P04a8E5QF3","./vendor/pdf.min.mjs":"sha384-+0ti2moQlmLN7WZHE2RHIf5lV8hHxhxEalN0il3YZceG26fUPyOkR0hp9daxk1i7","./vendor/qrcode.mjs":"sha384-xHtsZTi0cOhTiha4kloGDUR5e5A8ixkKsF1Mmpqq3tkDpAhkA4YOKIDua/Tc0Ecd"}}</script>
 <link rel="modulepreload" href="core.js">
-<script type="module" src="app.js" integrity="sha384-ur4tBsWrPkNpzsum0/id7bRT13EF6o+NW9T/KoUyGouZZ3qTRhT5hJDb1o3Zcwjv"></script>
+<script type="module" src="app.js" integrity="sha384-drQFoqlAwurLNbin5HzCePzXwsP0O7C7ZeuQj1aZhGXJefgX0x4w/siUmFTZ/PYQ"></script>
 </head>
 <body>
 <header class="top"><h1>Placement HQ</h1><span id="upd" class="mu"></span></header>
-<nav id="nav" aria-label="Sections" hidden><button data-v="home">Home</button><button data-v="companies">Companies</button><button data-v="calendar">Calendar</button><button data-v="shortlists">Shortlists</button><button data-v="cv">CV</button><button data-v="dsa">DSA</button><button data-v="settings">Settings</button></nav>
+<nav id="nav" aria-label="Sections" hidden><button data-v="home">Home</button><button data-v="companies">Companies</button><button data-v="jds">JDs</button><button data-v="calendar">Calendar</button><button data-v="shortlists">Shortlists</button><button data-v="cv">CV</button><button data-v="dsa">DSA</button><button data-v="settings">Settings</button></nav>
 <main>
 <p id="boot" class="mu">Opening…</p>
 <noscript><p>Placement HQ needs JavaScript.</p></noscript>
@@ -102,6 +104,14 @@ ul.dsa a{min-height:44px;display:inline-flex;align-items:center}
 <div class="head"><h2 id="h-co">Companies</h2><span id="co-n" class="mu"></span></div>
 <div class="bar"><label>Search <input id="q" type="search" autocomplete="off"></label><label>Track <select id="trk"><option value="">All tracks</option><option>HPC</option><option>AIML</option><option>SW</option><option>DS</option><option>HARDWARE</option><option>EMBEDDED</option><option>MECH</option><option>OTHER</option></select></label><label class="ck"><input id="mine" type="checkbox"> My roles</label></div>
 <div id="co-list"></div>
+</section>
+
+<section id="v-jds" hidden aria-labelledby="h-jd">
+<div class="head"><h2 id="h-jd">Job descriptions</h2><span id="jd-n" class="mu" role="status"></span></div>
+<p class="mu">The text of each company's JD and JAF files. Contact details are removed; the OCCaP mail is the source of truth.</p>
+<div id="jd-bar" class="bar"><label>Search <input id="jdq" type="search" autocomplete="off"></label><label>Company <select id="jdc"></select></label></div>
+<div id="jd-list"></div>
+<button class="ghost" id="jdmore" data-act="jdmore" hidden>Show all</button>
 </section>
 
 <section id="v-calendar" hidden aria-labelledby="mon">
