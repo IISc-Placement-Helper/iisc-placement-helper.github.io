@@ -4,14 +4,15 @@
 //   encrypted; nothing is written unless it exits 0. Generic leak checks run here as well.
 // Key: --key, else .batch-key in the repo root (git-ignored; created on first run, --new-key rotates).
 // Output: feed.enc.json in the repo root (git-ignored), which `npx serve` serves for local testing.
-// --upload [--repo owner/name]: replace the `feed` release asset and re-run the Pages workflow (GitHub REST API;
-//   token from GITHUB_TOKEN or the git credential helper).
+// --upload [--repo owner/name]: replace the `feed` release asset and re-run the Pages and Azure workflows (GitHub
+//   REST API; token from GITHUB_TOKEN or the git credential helper; see tools/release.mjs).
 import { readFileSync, writeFileSync, existsSync, mkdtempSync, rmSync } from 'node:fs';
-import { execFileSync, spawnSync } from 'node:child_process';
+import { spawnSync } from 'node:child_process';
 import { join, dirname, basename } from 'node:path';
 import { tmpdir } from 'node:os';
 import { fileURLToPath } from 'node:url';
 import { sealFeed, openFeed, newBatchKey, TRACKS } from '../core.js';
+import { github } from './release.mjs';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..'), argv = process.argv.slice(2);
 const opt = n => { const i = argv.indexOf('--' + n); return i >= 0 ? argv[i + 1] : undefined; }, flag = n => argv.includes('--' + n);
@@ -69,22 +70,13 @@ console.log(`${basename(out)}: ${cos.length} entries, ${feed.jds.length} JDs, ${
 const site = (opt('site') || 'http://localhost:4400').replace(/\/+$/, '');
 if (flag('upload')) {
   if (basename(out) !== 'feed.enc.json') die('--upload needs the default output name');
-  // GitHub REST API; token from GITHUB_TOKEN or the git credential helper (no gh CLI needed).
-  const repo = opt('repo') || execFileSync('git', ['remote', 'get-url', 'origin'], { cwd: ROOT }).toString().trim().replace(/^.*github\.com[/:]|\.git$/g, '');
-  const token = process.env.GITHUB_TOKEN || (spawnSync('git', ['credential', 'fill'], { input: 'protocol=https\nhost=github.com\n\n' }).stdout.toString().match(/^password=(.+)$/m) || [])[1];
-  if (!token) die('no GitHub token: set GITHUB_TOKEN or sign in to git once');
-  const api = async (url, init = {}) => {
-    const r = await fetch(url.startsWith('http') ? url : `https://api.github.com/repos/${repo}${url}`,
-      { ...init, headers: { Authorization: `Bearer ${token}`, Accept: 'application/vnd.github+json', ...init.headers } });
-    if (!r.ok && r.status !== 404) die(`${init.method || 'GET'} ${url}: ${r.status} ${await r.text()}`);
-    return r.status === 204 ? null : r.status === 404 ? undefined : r.json();
-  };
-  const rel = (await api('/releases/tags/feed')) || await api('/releases', { method: 'POST',
-    body: JSON.stringify({ tag_name: 'feed', name: 'Encrypted feed', body: 'AES-GCM ciphertext of the batch feed; the key is only in the shared link.' }) });
-  for (const a of rel.assets || []) if (a.name === 'feed.enc.json') await api(`/releases/assets/${a.id}`, { method: 'DELETE' });
-  await api(`https://uploads.github.com/repos/${repo}/releases/${rel.id}/assets?name=feed.enc.json`,
-    { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: readFileSync(out) });
-  await api('/actions/workflows/pages.yml/dispatches', { method: 'POST', body: JSON.stringify({ ref: 'main' }) });
-  console.log(`Uploaded to ${repo}; the Pages workflow is deploying it.`);
+  try {
+    const gh = github(ROOT, opt('repo'));
+    await gh.replaceAsset('feed', 'feed.enc.json', { name: 'Encrypted feed', body: 'AES-GCM ciphertext of the batch feed; the key is only in the shared link.' },
+      readFileSync(out), 'application/json');
+    await gh.dispatch('pages.yml');
+    await gh.dispatch('swa.yml'); // the Azure copy of the site carries the feed too (skipped until it is set up)
+    console.log(`Uploaded to ${gh.repo}; the Pages workflow is deploying it.`);
+  } catch (e) { die(e.message); }
 }
 console.log('Batch link: ' + site + '/#k=' + key);
