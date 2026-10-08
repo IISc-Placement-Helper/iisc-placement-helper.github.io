@@ -2,7 +2,7 @@
 import * as C from './core.js';
 
 const $ = s => document.querySelector(s), $$ = s => [...document.querySelectorAll(s)], esc = C.esc, KIND = C.KIND;
-const VIEWS = ['home', 'companies', 'jds', 'calendar', 'shortlists', 'cv', 'dsa', 'settings'];
+const VIEWS = ['home', 'status', 'companies', 'jds', 'calendar', 'shortlists', 'cv', 'dsa', 'settings'];
 const LABEL = { not_applied: 'Not applied', applied: 'Applied', shortlisted: 'Shortlisted', test_scheduled: 'Test scheduled', test_done: 'Test done',
   interview_scheduled: 'Interview scheduled', interview_done: 'Interview done', offer: 'Offer', rejected: 'Rejected', withdrawn: 'Withdrawn', not_eligible: 'Not eligible' };
 const ls =(k, v) => { try { if (v === undefined) return localStorage.getItem('hq:' + k); if (v === null) localStorage.removeItem('hq:' + k); else localStorage.setItem('hq:' + k, v); } catch { return null; } };
@@ -88,8 +88,13 @@ const V = {};
 V.home = () => {
   const now = Date.now(), all = evs(), my = mineAny(), only = my && ls('homeAll') !== '1';
   const ag = C.agenda(all, now).filter(e => e.kind === 'deadline' ? Date.parse(e.iso) > now : (!only || e.mine) && e.short !== 'no');
-  const cl = C.clashes(all, now);
+  const cl = C.clashes(all, now), fresh = stFresh();
   let h = '';
+  if (fresh.length) {
+    const lines = stGet().data.items.filter(i => fresh.includes(i.id)).map(C.statusLine);
+    h += `<section class="card note" aria-labelledby="h-stn"><h2 id="h-stn">New in My status</h2><ul>${lines.slice(0, 5).map(l => `<li>${esc(l)}</li>`).join('')}${
+      lines.length > 5 ? `<li>and ${lines.length - 5} more</li>` : ''}</ul><div class="bar"><button data-act="go" data-v="status">Open My status</button><button class="ghost" data-act="stseen">Mark all seen</button></div></section>`;
+  }
   if (CHANGES.length) h += `<section class="card note" aria-labelledby="h-chg"><h2 id="h-chg">What changed since your last visit</h2><ul>${CHANGES.map(changeLi).join('')}</ul><button data-act="seen">Got it</button></section>`;
   if (cl.length) h += `<section class="card warn" aria-labelledby="h-cl"><h2 id="h-cl">Possible clashes</h2><ul>${cl.map(([a, b]) =>
     `<li>${KIND[a.kind]} at ${esc(a.company)} and ${KIND[b.kind].toLowerCase()} at ${esc(b.company)}, ${fDay(a.date)} ${a.start && b.start ? `(${span(a)} and ${span(b)})` : '(same day)'}</li>`).join('')}</ul></section>`;
@@ -272,6 +277,109 @@ V.settings = () => {
   if (qr) drawQr();
 };
 
+/* ---------------------------------------------------------------- My status (Microsoft sign-in on the Azure address; GET /api/status) */
+// ME: undefined while checking; null where this address has no sign-in (GitHub Pages, a local server); false when
+// signed out; else {email, ok}. Per account on this device, under the SHA-256 of its email: {data, seen, told}.
+let ME, MEH = '', STMSG = '', stBusy = false, stAt = 0;
+const stGet = () => { try { return MEH && JSON.parse(ls('st:' + MEH)) || {}; } catch { return {}; } };
+const stPut = x => ls('st:' + MEH, JSON.stringify(Object.assign(stGet(), x)));
+const stFresh = () => { const s = ME && ME.ok ? stGet() : {}; return s.data ? C.newIds(s.data.items, s.seen) : []; };
+const fShort = d => new Date(C.istMs(d, '12:00')).toLocaleDateString('en-IN', Object.assign({ day: 'numeric', month: 'short' }, TZ));
+
+async function authMe() {
+  if (/\.github\.io$/.test(location.hostname)) return null; // no sign-in on GitHub Pages: skip a 404 on every start
+  try {
+    const r = await fetch('/.auth/me', { cache: 'no-store', redirect: 'manual' });
+    const j = r.ok && /json/.test(r.headers.get('content-type') || '') ? await r.json() : null;
+    if (!j || !('clientPrincipal' in j)) return null;
+    const p = j.clientPrincipal, email = p ? String(p.userDetails || '').trim().toLowerCase() : '';
+    return p ? { email, ok: p.identityProvider === 'aad' && C.okEmail(email) } : false;
+  } catch { return null; }
+}
+async function stInit() {
+  ME = await authMe();
+  if (ME && ME.ok) MEH = await C.sha256hex(ME.email);
+  stDraw();
+  stRefresh(true);
+}
+// On start, when the app comes back on screen, and every 10 minutes while it is on screen (at most once a minute).
+async function stRefresh(force) {
+  if (!ME || !ME.ok || stBusy || !force && Date.now() - stAt < 60000) return;
+  stBusy = true; stAt = Date.now();
+  try {
+    const r = await fetch('/api/status', { cache: 'no-store', redirect: 'manual' });
+    if (r.type === 'opaqueredirect' || r.status === 401) { ME = false; STMSG = 'Your sign-in has expired. Sign in again.'; }
+    else if (!r.ok) STMSG = (await r.json().catch(() => ({}))).error || `Could not load your entries (error ${r.status}). Try again later.`;
+    else {
+      const data = await r.json(), s = stGet();
+      STMSG = '';
+      // The first load seeds `told`: what is already there is shown as new, without a notification.
+      stPut({ data, seen: s.seen || [], told: s.told || data.items.map(i => i.id) });
+      await stTell();
+    }
+  } catch { STMSG = 'Offline: showing what this device saved last time.'; }
+  finally { stBusy = false; stDraw(); }
+}
+// A system notification for entries not reported before, if the student turned notifications on.
+async function stTell() {
+  const s = stGet(), fresh = C.newIds(s.data.items, s.told);
+  if (!fresh.length) return;
+  stPut({ told: s.told.concat(fresh) });
+  if (ls('stnote') !== '1' || !('Notification' in window) || Notification.permission !== 'granted') return;
+  const lines = s.data.items.filter(i => fresh.includes(i.id)).map(C.statusLine), title = 'Placement HQ: new in My status';
+  const opt = { body: lines.slice(0, 4).join('\n') + (lines.length > 4 ? `\nand ${lines.length - 4} more` : ''), tag: 'hq-status', icon: 'icons/icon-192.png', data: { v: 'status' } };
+  try {
+    const reg = 'serviceWorker' in navigator && await Promise.race([navigator.serviceWorker.ready, new Promise(r => setTimeout(r, 3000))]);
+    if (reg) await reg.showNotification(title, opt); else new Notification(title, opt);
+  } catch { /* notifications unavailable here */ }
+}
+function stDraw() {
+  const n = stFresh().length, b = $('#stb');
+  b.textContent = n; b.hidden = !n;
+  $('#nav button[data-v=status]').setAttribute('aria-label', n ? `My status, ${n} new` : 'My status');
+  try { (n ? navigator.setAppBadge(n) : navigator.clearAppBadge()).catch(() => {}); } catch { /* no app badge */ }
+  if (FEED && (VIEW === 'status' || VIEW === 'home')) V[VIEW]();
+}
+
+const TONE = { upcoming: 'up', waitlisted: 'wait', selected: 'ok', not_selected: 'no', not_shortlisted: 'no', withdrawn: 'no', awaiting: '' };
+const STEPW = { done: 'done', wait: 'waitlisted', next: 'coming up', todo: 'not yet', no: 'not on the list' };
+function stCard(c, lead, fresh) {
+  const n = c.next, iso = n && new Date(n.ms).toISOString(), venue = n && (/^tbd$/i.test(n.venue) ? 'venue to be announced' : n.venue);
+  const when = n ? [`<b>${n.stage === 'test' ? 'Test' : 'Interview'}</b>`, esc(fDay(n.date)), esc(n.end ? n.start + '–' + n.end : n.time || n.start), esc(n.mode), esc(venue), n.tentative ? 'tentative' : '']
+    .filter(Boolean).join(' · ') + (lead ? '' : ' · ' + cdSpan(iso)) : c.tba ? '<b>Next step:</b> date not announced yet' : '';
+  return `<article class="card st${lead ? ' lead' : ''}"><div class="sh"><div><h4>${esc(c.company)}</h4>${c.roles.length ? `<p class="mu">${esc(c.roles.join(' · '))}</p>` : ''}</div><div class="chips">${
+    c.ids.some(id => fresh.has(id)) ? chip('New', 'new') : ''}${chip(c.outcome.label, TONE[c.outcome.code])}</div></div>${lead && n ? `<p class="big">${cdSpan(iso)}</p>` : ''}${
+    when ? `<p class="nx">${when}</p>` : ''}<ol class="steps" aria-label="Steps">${c.steps.map(s => `<li class="${s.state}">${esc(s.label)}${s.date ? ' · ' + esc(fShort(s.date)) : ''}<span class="vh"> (${STEPW[s.state]})</span></li>`).join('')}</ol>${
+    c.gone.length ? `<p class="mu">Later removed from: ${esc([...new Set(c.gone.map(i => i.list))].join(', '))}.</p>` : ''}</article>`;
+}
+function stBody() {
+  const s = stGet(), d = s.data, fresh = new Set(stFresh()), N = 'Notification' in window ? Notification.permission : '';
+  let h = `<div class="acct"><span>Signed in as <b>${esc(ME.email)}</b></span><button class="link" data-act="stout">Sign out</button></div>`;
+  const bar = [N && N !== 'denied' && !(N === 'granted' && ls('stnote') === '1') && '<button class="ghost" data-act="stnote">Enable notifications</button>',
+    fresh.size && `<button class="ghost" data-act="stseen">Mark all seen (${fresh.size})</button>`].filter(Boolean);
+  if (bar.length) h += `<div class="bar">${bar.join('')}</div>`;
+  if (N === 'granted' && ls('stnote') === '1') h += '<p class="mu">Notifications are on: they arrive while the app is open, or when it comes back on screen.</p>';
+  if (STMSG) h += `<p class="card warn" role="status">${esc(STMSG)}</p>`;
+  if (!d) return h + (STMSG ? '' : '<p class="mu">Loading your entries…</p>');
+  const cards = C.statusCards(d, FEED.companies, Date.now()), up = cards.filter(c => c.upcoming), past = cards.filter(c => !c.upcoming);
+  const foot = `<p class="mu">Last updated ${esc(fWhen(d.updated))} from the OCCaP sheet. Only you can see your entries here. Always confirm in the OCCaP mail.</p>`;
+  if (!cards.length) return h + '<p class="card">You are not on any OCCaP list yet. When OCCaP adds you to a test or interview shortlist, a waitlist or the selections, it appears here.</p>' + foot;
+  return h + '<h3>Upcoming</h3>' + (up.map((c, i) => stCard(c, i === 0, fresh)).join('') || '<p class="mu">Nothing scheduled for you right now.</p>') +
+    '<h3>History</h3>' + (past.map(c => stCard(c, false, fresh)).join('') || '<p class="mu">Nothing here yet.</p>') + foot;
+}
+V.status = () => {
+  const there = C.STATUS_ORIGIN && location.origin !== C.STATUS_ORIGIN && `${C.STATUS_ORIGIN}/#k=${ls('k') || ''}`;
+  let h = '<h2 id="h-st">My status</h2>';
+  if (ME === undefined) h += '<p class="mu">Checking your sign-in…</p>';
+  else if (ME === null) h += `<div class="card"><p>Your own OCCaP results in one place: test and interview shortlists, waitlists and selections, with your next date and an alert when something new appears.</p>${
+    there ? `<p>It needs a sign-in with your IISc Microsoft account, which works at the app's second address. Your batch link goes along, so the app opens there unlocked.</p><a class="btn pri" href="${esc(there)}">Open My status</a><p class="mu">For alerts, install the app from that address as well.</p>`
+      : C.STATUS_ORIGIN ? '<p class="warn">The sign-in service did not answer. Check your connection and reload.</p>' : '<p class="mu">This is being set up. Check back soon.</p>'}</div>`;
+  else if (!ME) h += `<div class="card">${STMSG ? `<p class="warn">${esc(STMSG)}</p>` : ''}<p>Sign in with your IISc Microsoft account (yourname@iisc.ac.in) to see your shortlists, waitlists and selections from the OCCaP sheet. Only you can see your entries.</p><button data-act="stin">Sign in with Microsoft (IISc account)</button></div>`;
+  else if (!ME.ok) h += `<div class="card warn"><p>You are signed in as <b>${esc(ME.email || 'an account without an email address')}</b>. My status works only with your IISc Microsoft account (yourname@iisc.ac.in).</p><p>Sign out, then sign in with that account. If Microsoft picks the same account again, use a private window.</p><button class="ghost" data-act="stout">Sign out</button></div>`;
+  else h += stBody();
+  $('#v-status').innerHTML = h;
+};
+
 function draw() { if (FEED) V[VIEW](); }
 function show(v) {
   if (!FEED) return; // locked: no views without the feed
@@ -315,8 +423,9 @@ async function round() {
 }
 const poll = () => Date.now() - lastPull > 5000 && round();
 setInterval(() => document.visibilityState === 'visible' && poll(), 60000);
+setInterval(() => document.visibilityState === 'visible' && stRefresh(), 600000);
 addEventListener('focus', poll);
-document.addEventListener('visibilitychange', () => document.visibilityState === 'visible' && poll());
+document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') { poll(); stRefresh(); } });
 
 const checked = async token => { const gc = C.gistClient(token); await gc.check(); return gc; };
 async function joinSync(code, id, token) {
@@ -357,6 +466,20 @@ const ACT = {
   },
   jdmore: b => { b.dataset.all = '1'; V.jds(); },
   seen: () => { setRec('seen', null, { feedUpdated: FEED.updated, keys: C.feedKeys(FEED) }); CHANGES = []; V.home(); },
+  // Sign-in and sign-out leave the app for /.auth and come back to My status.
+  stin: () => { ls('view', 'status'); location.href = '/.auth/login/aad?post_login_redirect_uri=' + encodeURIComponent(location.origin + '/'); },
+  stout: () => {
+    if (MEH) ls('st:' + MEH, null); // this account's saved entries and seen list leave this device
+    ls('view', 'status');
+    location.href = '/.auth/logout?post_logout_redirect_uri=' + encodeURIComponent(location.origin + '/');
+  },
+  stseen: () => { const s = stGet(); if (s.data) stPut({ seen: s.data.items.map(i => i.id) }); stDraw(); },
+  stnote: async () => {
+    const p = await Notification.requestPermission();
+    if (p === 'granted') ls('stnote', '1');
+    else STMSG = 'Notifications are blocked for this site. Allow them in the browser\'s site settings, then press the button again.';
+    V.status();
+  },
   nohint: () => { ls('nohint', '1'); V.home(); },
   install: () => { if (DEFER) DEFER.prompt(); DEFER = null; V.home(); },
   'm-1': () => shiftMonth(-1), 'm+1': () => shiftMonth(1),
@@ -510,12 +633,17 @@ async function joinPrompt(p) {
 (async () => {
   const h = link(location.hash), k = h.get('k');
   if (k) ls('k', k);
+  if (VIEWS.includes(h.get('v'))) ls('view', h.get('v')); // #v=status from a notification
   if (location.hash) history.replaceState(null, '', location.pathname + location.search); // the key and token do not stay in the address bar
   S = Object.assign(C.emptyState(), await get('state'));
   LASTU = C.maxU(S);
   await setSync(await get('sync'));
-  if ('serviceWorker' in navigator) navigator.serviceWorker.register('sw.js').catch(() => {});
+  if ('serviceWorker' in navigator) {
+    navigator.serviceWorker.register('sw.js').catch(() => {});
+    navigator.serviceWorker.addEventListener('message', e => { if (e.data && VIEWS.includes(e.data.v)) show(e.data.v); }); // a tapped notification
+  }
   if (!await unlock()) return;
+  stInit();
   await joinPrompt(h);
   round();
 })();

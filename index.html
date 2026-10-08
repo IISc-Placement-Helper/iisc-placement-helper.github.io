@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'sha256-jedq/ViWz9/1LnURtdCBAzjM2y+CQDQhu19lUnAIFCg='; style-src 'sha256-IEeA8nZBFE7P+VfYOBKEDduiBnQD6IxRCR0HYv5Cgzc='; img-src 'self' data:; connect-src 'self' https://api.github.com https://gist.githubusercontent.com; worker-src 'self' blob:; object-src 'none'; base-uri 'none'; form-action 'none'">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'sha256-+OU35GbfSCVDFubbIJZ+CzU4SLwKAJ78wzHH4MbQUow='; style-src 'sha256-N8lW4WvU5b593306xzX9VvvXIxMf4zvFxouMEQTRt2I='; img-src 'self' data:; connect-src 'self' https://api.github.com https://gist.githubusercontent.com; worker-src 'self' blob:; object-src 'none'; base-uri 'none'; form-action 'none'">
 <meta name="referrer" content="no-referrer">
 <meta name="color-scheme" content="light dark">
 <meta name="theme-color" content="#f4f5f7" media="(prefers-color-scheme: light)">
@@ -78,15 +78,33 @@ ul.dsa{list-style:none;padding:0;margin:0 0 12px}ul.dsa li{display:flex;flex-wra
 ul.dsa a{min-height:44px;display:inline-flex;align-items:center}
 #d-due li{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin:6px 0}#d-due li span{flex:1 1 160px}
 #qr{display:block;margin:8px 0;image-rendering:pixelated;background:#fff;padding:4px}
+nav button{position:relative}
+.badge{position:absolute;top:5px;left:calc(50% + 10px);min-width:18px;height:18px;padding:0 5px;border-radius:9px;background:var(--dl);color:var(--on);font-size:.7rem;font-weight:700;line-height:18px;text-align:center}
+@media (min-width:900px){.badge{position:static;display:inline-block;margin-left:8px;vertical-align:1px}}
+a.btn{text-decoration:none}.btn.pri{background:var(--acc);color:var(--on)}
+.acct{display:flex;flex-wrap:wrap;align-items:baseline;gap:2px 12px;margin:0 0 4px}.acct b{overflow-wrap:anywhere}
+@media (max-width:380px){nav button{font-size:.68rem;padding:0 2px}}
+.st .sh{display:flex;flex-wrap:wrap;justify-content:space-between;align-items:flex-start;gap:6px 10px}.st .sh>div:first-child{flex:1 1 11em;min-width:0}
+.st h4{margin:0;font-size:1.02rem;line-height:1.3}.st .sh p{margin:2px 0 0;font-size:.9rem}
+.chips{display:flex;gap:4px}.chips .chip{white-space:nowrap}
+.st.lead{border:2px solid var(--acc)}
+.big{margin:10px 0 0;font-size:1.6rem;line-height:1.2;font-variant-numeric:tabular-nums}
+.nx{margin:6px 0 0}
+.chip.up{background:var(--note);color:var(--acc)}.chip.wait{background:var(--warnbg);color:var(--warn)}
+.chip.no{background:none;box-shadow:inset 0 0 0 1px var(--line);color:var(--mu)}.chip.new{background:var(--acc);color:var(--on)}
+.steps{list-style:none;display:flex;flex-wrap:wrap;margin:10px 0 0;padding:0;font-size:.85rem;color:var(--mu)}
+.steps li+li::before{content:"›";display:inline-block;padding:0 6px;color:var(--mu)}
+.steps .done{color:var(--fg)}.steps .next{color:var(--acc);font-weight:600}.steps .wait{color:var(--warn)}.steps .no{text-decoration:line-through}
+#v-status h3{margin:20px 0 8px}
 [hidden]{display:none!important}
 </style>
-<script type="importmap">{"imports":{},"integrity":{"./core.js":"sha384-t/TGDj1LhV/qSr2PQfQ5J0JeK9Q+ZzSYNGyg2HY+eYMkwNaGBbVbf7P04a8E5QF3","./vendor/pdf.min.mjs":"sha384-+0ti2moQlmLN7WZHE2RHIf5lV8hHxhxEalN0il3YZceG26fUPyOkR0hp9daxk1i7","./vendor/qrcode.mjs":"sha384-xHtsZTi0cOhTiha4kloGDUR5e5A8ixkKsF1Mmpqq3tkDpAhkA4YOKIDua/Tc0Ecd"}}</script>
+<script type="importmap">{"imports":{},"integrity":{"./core.js":"sha384-Q6XDUQMBDM1tzLQIOTBUdQWHBH2XoP52vufavanukAlKzDenDop45EHdHJ5ncfZS","./vendor/pdf.min.mjs":"sha384-+0ti2moQlmLN7WZHE2RHIf5lV8hHxhxEalN0il3YZceG26fUPyOkR0hp9daxk1i7","./vendor/qrcode.mjs":"sha384-xHtsZTi0cOhTiha4kloGDUR5e5A8ixkKsF1Mmpqq3tkDpAhkA4YOKIDua/Tc0Ecd"}}</script>
 <link rel="modulepreload" href="core.js">
-<script type="module" src="app.js" integrity="sha384-drQFoqlAwurLNbin5HzCePzXwsP0O7C7ZeuQj1aZhGXJefgX0x4w/siUmFTZ/PYQ"></script>
+<script type="module" src="app.js" integrity="sha384-1XXdkxvJ+QPE8HDqRdY3X7Tj97tYac3NPZjIpKMv25bdxd+8UhrACUFRsQZaxVDv"></script>
 </head>
 <body>
 <header class="top"><h1>Placement HQ</h1><span id="upd" class="mu"></span></header>
-<nav id="nav" aria-label="Sections" hidden><button data-v="home">Home</button><button data-v="companies">Companies</button><button data-v="jds">JDs</button><button data-v="calendar">Calendar</button><button data-v="shortlists">Shortlists</button><button data-v="cv">CV</button><button data-v="dsa">DSA</button><button data-v="settings">Settings</button></nav>
+<nav id="nav" aria-label="Sections" hidden><button data-v="home">Home</button><button data-v="status" aria-label="My status">Status<span id="stb" class="badge" aria-hidden="true" hidden></span></button><button data-v="companies">Companies</button><button data-v="jds">JDs</button><button data-v="calendar">Calendar</button><button data-v="shortlists">Shortlists</button><button data-v="cv">CV</button><button data-v="dsa">DSA</button><button data-v="settings">Settings</button></nav>
 <main>
 <p id="boot" class="mu">Opening…</p>
 <noscript><p>Placement HQ needs JavaScript.</p></noscript>
@@ -99,6 +117,8 @@ ul.dsa a{min-height:44px;display:inline-flex;align-items:center}
 </section>
 
 <section id="v-home" hidden aria-label="Home"></section>
+
+<section id="v-status" hidden aria-labelledby="h-st"></section>
 
 <section id="v-companies" hidden aria-labelledby="h-co">
 <div class="head"><h2 id="h-co">Companies</h2><span id="co-n" class="mu"></span></div>
@@ -175,7 +195,8 @@ ul.dsa a{min-height:44px;display:inline-flex;align-items:center}
 <div class="card"><h3>About and privacy</h3>
 <p>The company feed is encrypted with your batch's key, which travels in the link after the # (browsers never send that part to a server). The key is membership gating, so the feed is "not public"; it is not a secret, since anyone in the batch can pass the link on.</p>
 <p>Your personal data (statuses, notes, CV text, identifiers, pasted schedules) stays on this device. It leaves only as ciphertext: in a backup file you export, or, if you turn sync on, as one encrypted file in a secret gist in your own GitHub account. The sync code that encrypts it never goes to GitHub.</p>
-<p>No accounts, no analytics, no third-party scripts or fonts. Shortlist checks keep only your own matches and the schedule rows, never other students' names. The CV match runs here.</p>
+<p>No analytics, no third-party scripts or fonts. Shortlist checks keep only your own matches and the schedule rows, never other students' names. The CV match runs here.</p>
+<p>My status is the one part with an account: you sign in with your IISc Microsoft account at the app's Azure address, and the site's server function decrypts the OCCaP lists to send you only your own entries. Signing out removes them from this device.</p>
 <p>Not an official OCCaP service: always confirm dates from the OCCaP mail.</p></div>
 </section>
 </main>

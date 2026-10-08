@@ -1,7 +1,9 @@
 // Service worker. The shell is precached and served cache-first as one versioned set, so index.html always
 // matches the SRI hashes of the scripts beside it; the deploy workflow renames V for every new build.
 // vendor/ is cached on first use; the feed is network-first, falling back to the last copy when offline.
+// Sign-in (/.auth/, /login, /logout) and the API (/api/) always go to the network and are never cached.
 const V = 'hq-dev', SHELL = ['./', 'app.js', 'core.js', 'manifest.webmanifest', 'icons/icon.svg', 'icons/icon-192.png'];
+const LIVE = /^\/(api|\.auth)\/|^\/(login|logout)$/;
 
 self.addEventListener('install', e => e.waitUntil(caches.open(V).then(c => c.addAll(SHELL)).then(() => self.skipWaiting())));
 self.addEventListener('activate', e => e.waitUntil(caches.keys()
@@ -10,8 +12,18 @@ self.addEventListener('activate', e => e.waitUntil(caches.keys()
 const keep = (key, res) => { if (res.ok) { const copy = res.clone(); caches.open(V).then(c => c.put(key, copy)); } return res; };
 self.addEventListener('fetch', e => {
   const req = e.request, url = new URL(req.url);
-  if (req.method !== 'GET' || url.origin !== location.origin) return;
+  if (req.method !== 'GET' || url.origin !== location.origin || LIVE.test(url.pathname)) return;
   if (url.pathname.endsWith('/feed.enc.json')) return e.respondWith(fetch(req).then(r => keep(url.pathname, r)).catch(() => caches.match(url.pathname)));
   if (req.mode === 'navigate') return e.respondWith(caches.match('./').then(hit => hit || fetch(req)));
   e.respondWith(caches.match(req).then(hit => hit || fetch(req).then(r => keep(req, r))));
+});
+
+// A tapped "new in My status" notification opens the app on that tab.
+self.addEventListener('notificationclick', e => {
+  e.notification.close();
+  e.waitUntil(self.clients.matchAll({ type: 'window', includeUncontrolled: true }).then(cs => {
+    if (!cs.length) return self.clients.openWindow('./#v=status');
+    cs[0].postMessage({ v: 'status' });
+    return cs[0].focus();
+  }));
 });

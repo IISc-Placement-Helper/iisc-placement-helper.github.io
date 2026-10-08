@@ -580,6 +580,104 @@ test('api: GET /api/status returns only the caller\'s entries; cache, stale copy
   assert.deepEqual([fj.type, fj.route, fj.methods], ['httpTrigger', 'status', ['get']]);
 });
 
+test('my status: new entries, lines for Home and notifications', async () => {
+  const it = (id, kind, company, role, list, x = {}) => Object.assign({ id, kind, company, role, list, position: 1, note: '', first_seen: '2026-10-01' }, x);
+  const items = [it('a', 'interview_shortlist', 'Texas Instruments', 'Analog', 'Shortlist for Interview'), it('b', 'waitlist', 'Cisco', 'PD', 'Shortlist for Interview', { position: 2 }),
+    it('c', 'test_shortlist', 'EXL', 'Data', 'Shortlist for Test', { withdrawn_from_list: true })];
+  assert.deepEqual(A.newIds(items, undefined), ['a', 'b'], 'first look: everything current is new; withdrawn entries never are');
+  assert.deepEqual(A.newIds(items, ['a']), ['b']);
+  assert.deepEqual(A.newIds(items, ['a', 'b']), []);
+  assert.equal(A.statusLine(items[0]), 'Shortlisted for Texas Instruments Analog interview');
+  assert.equal(A.statusLine(items[1]), 'Waitlisted #2 for Cisco PD interview');
+  assert.equal(A.statusLine(items[2]), 'Shortlisted for EXL Data test');
+  assert.equal(A.statusLine(it('d', 'additional_shortlist', 'Cadence', 'Digital', 'Shortlist for Interview')), 'Additional shortlist for Cadence Digital interview');
+  assert.equal(A.statusLine(it('e', 'registration_shortlist', 'Mastercard', 'DS II', 'Shortlist for 2nd Registration')), 'Shortlisted to register for Mastercard DS II');
+  assert.equal(A.statusLine(it('f', 'selected', 'Zeta', 'SDE', 'Selection Status', { note: 'Permitted for Dream Company' })), 'Selected by Zeta (SDE): Permitted for Dream Company');
+  assert.match(await A.sha256hex('student1@iisc.ac.in'), /^[0-9a-f]{64}$/);
+  assert.notEqual(await A.sha256hex('student1@iisc.ac.in'), await A.sha256hex('student2@iisc.ac.in'));
+  assert.ok(A.okEmail('student1@iisc.ac.in') && !A.okEmail('student1@outlook.com') && !A.okEmail('x@iisc.ac.in.evil.org'));
+  assert.equal(A.STATUS_ORIGIN, A.STATUS_ORIGIN.replace(/\/+$/, ''), 'STATUS_ORIGIN has no trailing slash');
+});
+
+test('my status: cards, dates from schedules and the feed, and the outcome rules', () => {
+  const T = '2026-10-01', it = (id, kind, company, role, list, x = {}) => Object.assign({ id, kind, company, role, list, position: 1, note: '', first_seen: T }, x);
+  const IV = 'Shortlist for Interview', TS = 'Shortlist for Test';
+  const data = {
+    items: [
+      it('ti', 'test_shortlist', 'Texas Instruments', 'Signal Processing/Analog', TS),
+      it('qc', 'interview_shortlist', 'Qualcomm', 'Multiple roles', IV),
+      it('nv', 'interview_shortlist', 'Nvidia', 'Hardware ASIC Engineer', IV),
+      it('mw', 'interview_shortlist', 'MathWorks', 'UX/UI Role', IV),
+      it('cs1', 'waitlist', 'CISCO', 'ASIC Engineer - Physical Design', IV, { position: 5 }), it('cs2', 'waitlist', 'CISCO', 'ASIC Engineer - Design Verification', IV, { position: 2 }),
+      it('co1', 'interview_shortlist', 'Capital One', 'Associate Business Analyst', IV),
+      it('co2', 'selected', 'Capital One', 'Associate Business Analyst', 'Selection Status', { note: 'Permitted for Dream Company', position: null }),
+      it('ex', 'test_shortlist', 'EXL', 'Data& AI Engineer', TS),
+      it('rn', 'registration_shortlist', 'Renesas Electronics India Pvt. Ltd.', 'Associate Engineer/Engineer', 'Shortlist for 2nd Registration'),
+      it('lc', 'test_shortlist', 'Late Co', 'DS', TS),
+      it('zt', 'interview_shortlist', 'Zeta', 'SDE', IV),
+      it('lm', 'interview_shortlist', 'Lam research', 'Data Enginner-2', IV, { withdrawn_from_list: true }),
+    ],
+    lists: [['interview', 'Texas Instruments'], ['interview', 'Qualcomm'], ['interview', 'Nvidia'], ['interview', 'MathWorks'], ['interview', 'CISCO'], ['interview', 'Capital One'],
+      ['interview', 'Zeta'], ['test', 'Texas Instruments'], ['test', 'EXL'], ['test', 'Renesas Electronics']].map(([stage, company]) => ({ stage, company, role: '', list: '' })),
+    results: [{ company: 'Qualcomm', slot: 'Slot 1' }, { company: 'Capital One', slot: 'Slot 1' }],
+    schedule: [
+      { stage: 'test', company: 'Texas Instruments', date: '2026-09-29', time: '06:00 PM - 08:00 PM', mode: 'In-Person', venue: 'TBD', tentative: false },
+      { stage: 'test', company: 'EXL ', date: '2026-09-29', time: '07:00 AM - 9:00 AM', mode: 'Virtual', venue: '', tentative: false },
+      { stage: 'interview', company: 'Qualcomm', date: '2026-10-05', time: '', mode: 'In Person', venue: 'TBD', tentative: false },
+      { stage: 'interview', company: 'Capital One', date: '2026-10-05', time: '', mode: 'In Person', venue: '', tentative: false },
+      { stage: 'interview', company: 'Nvidia', date: '2026-10-06', time: '', mode: 'In Person', venue: '', tentative: true },
+      { stage: 'interview', company: 'MathWorks', date: '2026-10-07', time: '', mode: 'In Person', venue: '', tentative: false },
+      { stage: 'interview', company: 'Mathworks(UX)', date: '2026-10-12', time: '10:00 AM - 12:00 PM', mode: 'In Person', venue: 'Main hall', tentative: false },
+      { stage: 'interview', company: 'CISCO', date: '2026-10-14', time: '', mode: '', venue: '', tentative: false },
+    ] };
+  const at = when => A.statusCards(data, FEED.companies, Date.parse(when)), by = cs => Object.fromEntries(cs.map(c => [c.company, c]));
+  const cards = at('2026-10-09T12:00:00+05:30'), c = by(cards);
+  assert.deepEqual(cards.filter(x => x.upcoming).map(x => x.company), ['MathWorks', 'CISCO', 'Late Co', 'Zeta'], 'upcoming: soonest first, undated last');
+  assert.deepEqual(cards.filter(x => !x.upcoming).map(x => x.company), ['Nvidia', 'Capital One', 'Qualcomm', 'EXL', 'Lam research', 'Renesas Electronics India Pvt. Ltd.', 'Texas Instruments'], 'history: most recent first');
+  const oc = Object.fromEntries(cards.map(x => [x.company, x.outcome.label]));
+  assert.deepEqual(oc, { MathWorks: 'Upcoming', CISCO: 'Waitlisted #2', 'Late Co': 'Upcoming', Zeta: 'Upcoming', Nvidia: 'Awaiting result', 'Capital One': 'Permitted for Dream Company',
+    Qualcomm: 'Not selected', EXL: 'Awaiting result', 'Lam research': 'No longer listed', 'Renesas Electronics India Pvt. Ltd.': 'Not shortlisted for test', 'Texas Instruments': 'Not shortlisted for interview' });
+  // Dates: the OCCaP schedule wins, a "Company(UX)" row is picked for a UX role, the feed fills gaps, unknown stays undated.
+  assert.deepEqual([c.MathWorks.next.date, c.MathWorks.next.start, c.MathWorks.next.end, c.MathWorks.next.venue, c.MathWorks.next.src], ['2026-10-12', '10:00', '12:00', 'Main hall', 'occap']);
+  assert.deepEqual([c['Late Co'].next.date, c['Late Co'].next.src, c['Late Co'].next.tentative], ['2026-10-20', 'feed', true], 'feed test date (unconfirmed) when no schedule row');
+  assert.equal(c.Nvidia.steps.find(s => s.label === 'Interview').date, '2026-10-06', 'schedule beats the feed (both have NVIDIA)');
+  assert.deepEqual([c.Zeta.next, c.Zeta.tba], [null, true]);
+  assert.deepEqual(c['Texas Instruments'].steps.map(s => [s.label, s.state]), [['Test shortlist', 'done'], ['Test', 'done'], ['Interview shortlist', 'no']]);
+  assert.deepEqual(c['Capital One'].steps.map(s => s.state), ['done', 'done', 'done'], 'interview shortlist, interview, result');
+  assert.deepEqual(c.Qualcomm.steps.at(-1), { label: 'Result', state: 'no' });
+  assert.deepEqual(c.CISCO.roles, ['ASIC Engineer - Physical Design', 'ASIC Engineer - Design Verification']);
+  assert.deepEqual(c.CISCO.ids, ['cs1', 'cs2']);
+  assert.equal(c['Lam research'].gone.length, 1);
+  // Not selected versus awaiting result: results out AND interview over AND not listed.
+  let e = by(at('2026-10-04T12:00:00+05:30'));
+  assert.equal(e.Qualcomm.outcome.code, 'upcoming', 'results exist but the interview is still ahead');
+  assert.equal(e.Qualcomm.next.date, '2026-10-05');
+  assert.equal(by(at('2026-10-05T20:00:00+05:30')).Qualcomm.outcome.code, 'upcoming', 'an untimed interview lasts the whole day');
+  assert.equal(by(at('2026-10-06T00:00:00+05:30')).Qualcomm.outcome.code, 'not_selected');
+  const noRes = A.statusCards(Object.assign({}, data, { results: [] }), FEED.companies, Date.parse('2026-10-09T12:00:00+05:30'));
+  assert.equal(by(noRes).Qualcomm.outcome.code, 'awaiting', 'no results yet: awaiting, never not selected');
+  e = by(at('2026-09-28T12:00:00+05:30'));
+  assert.equal(e.EXL.outcome.code, 'upcoming'); assert.equal(e.EXL.next.start, '07:00');
+  // Not shortlisted for interview needs that company's interview list.
+  const noList = Object.assign({}, data, { lists: data.lists.filter(l => !(l.company === 'Texas Instruments' && l.stage === 'interview')) });
+  assert.equal(by(A.statusCards(noList, FEED.companies, Date.parse('2026-10-09T12:00:00+05:30')))['Texas Instruments'].outcome.code, 'awaiting');
+  assert.deepEqual(A.statusCards({ items: [] }, FEED.companies), []);
+  assert.deepEqual(A.statusCards(null, null), []);
+});
+
+test('service worker: sign-in and the API always go to the network', () => {
+  const on = {}, used = [];
+  vm.runInNewContext(rd('sw.js').toString(), { self: { addEventListener: (t, f) => { on[t] = f; } }, location: new URL('https://hq.example.net/sw.js'), URL,
+    caches: { match: async () => undefined, open: async () => ({ put() {}, addAll: async () => {} }) }, fetch: async () => new Response('') });
+  const go = (path, mode = 'cors', method = 'GET') => { let r = false; on.fetch({ request: { method, url: 'https://hq.example.net' + path, mode }, respondWith: p => { r = true; used.push(p); } }); return r; };
+  for (const p of ['/api/status', '/.auth/me', '/.auth/logout']) assert.equal(go(p), false, p);
+  for (const p of ['/.auth/login/aad', '/.auth/login/aad/callback', '/login', '/logout']) assert.equal(go(p, 'navigate'), false, p);
+  assert.equal(go('/', 'navigate'), true, 'the app shell still comes from the cache');
+  assert.equal(go('/app.js'), true); assert.equal(go('/feed.enc.json'), true);
+  assert.equal(go('/api.js'), true, 'only the /api/ folder is live');
+  assert.equal(typeof on.notificationclick, 'function', 'a tapped notification opens My status');
+});
+
 test('staticwebapp.config.json: Microsoft sign-in only, API for signed-in users, same CSP as index.html', () => {
   const cfg = JSON.parse(rd('staticwebapp.config.json')), csp = CSP.exec(rd('index.html').toString())[1], route = r => cfg.routes.find(x => x.route === r) || {};
   assert.deepEqual(route('/api/*').allowedRoles, ['authenticated']);

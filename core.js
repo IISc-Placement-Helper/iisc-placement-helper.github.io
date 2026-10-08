@@ -568,3 +568,100 @@ export async function gistSync(gc, id, etag, key, state, dirty, now = Date.now()
   if (got ? canon(merged) === canon(remote) : !dirty) return { state: merged, etag: got ? got.etag : etag, pulled, pushed: false };
   return { state: merged, etag: await gc.patch(id, await seal(key, merged)), pulled, pushed: true };
 }
+
+/* ---------------------------------------------------------------- My status: your own OCCaP entries (GET /api/status) */
+// The Azure Static Web Apps address that serves Microsoft sign-in and /api/status, for example
+// 'https://<name>.azurestaticapps.net'. Empty until it is set up; then other addresses link there.
+export const STATUS_ORIGIN = '';
+// The API enforces the same rule; the app uses it to explain a sign-in with the wrong account.
+export const okEmail = e => /^[a-z0-9][a-z0-9._%+'-]*@iisc\.ac\.in$/.test(e);
+export const sha256hex = async s => hex(await sub().digest('SHA-256', te.encode(s)));
+
+// The step of the season an entry belongs to, from its list ("Shortlist for Interview", ...).
+export const stageOf = it => it.kind === 'selected' ? 'result' : /interview/i.test(it.list) ? 'interview' : /regist/i.test(it.list) ? 'registration' : 'test';
+// "Shortlisted for Texas Instruments Analog interview": one line per entry, for Home and notifications.
+export function statusLine(it) {
+  const who = it.company + (it.role ? ' ' + it.role : ''), st = stageOf(it);
+  return it.kind === 'selected' ? `Selected by ${it.company}${it.role ? ' (' + it.role + ')' : ''}${it.note && it.note !== 'Selected' ? ': ' + it.note : ''}`
+    : it.kind === 'waitlist' ? `Waitlisted${it.position ? ' #' + it.position : ''} for ${who} ${st}`
+    : it.kind === 'additional_shortlist' ? `Additional shortlist for ${who} ${st}`
+    : it.kind === 'registration_shortlist' ? `Shortlisted to register for ${who}`
+    : `Shortlisted for ${who} ${st}`;
+}
+// Ids of current entries not in seen: what the badge, the Home card and notifications report.
+export const newIds = (items, seen) => { const s = new Set(seen || []); return (items || []).filter(i => !i.withdrawn_from_list && !s.has(i.id)).map(i => i.id); };
+
+const sameCo = (a, b) => { const x = coNorm(a); return !!x && x === coNorm(b); };
+const nearCo = (a, b) => { const x = coNorm(a), y = coNorm(b); return x.length >= 3 && y.length >= 3 && (x.startsWith(y) || y.startsWith(x)); };
+// Rows for a company: same name after noise words, else a prefix match ("Lam research" ~ "Lamresearch").
+const coRows = (xs, name) => { const ex = xs.filter(x => sameCo(x.company, name)); return ex.length ? ex : xs.filter(x => nearCo(x.company, name)); };
+const hintOf = name => ((/\(([^)]*)\)/.exec(name) || [])[1] || '').trim();
+const reEsc = s => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+
+// {stage, date, start, end, time, mode, venue, tentative, src, ms, until}; it has passed once now >= until
+// (the end time, else an hour after the start, else the end of the day).
+function stEvent(stage, x, src) {
+  const t = parseTimeRange(x.time) || NOTIME, start = t.start, end = t.end > t.start ? t.end : '', ms = istMs(x.date, start);
+  return { stage, date: x.date, start, end, time: clean(x.time), mode: clean(x.mode), venue: clean(x.venue), tentative: !!x.tentative, src, ms,
+    until: end ? istMs(x.date, end) : start ? ms + 3600000 : istMs(x.date) + DAY };
+}
+// A company's test or interview: the OCCaP schedule sheets first (a "Company(UX)" row is preferred for a role that
+// mentions UX, else a row without such a hint; earliest first), else the feed's test/interview fields.
+function stPick(sched, feedCo, company, stage, roles) {
+  const rows = coRows(sched.filter(r => r.stage === stage && /^\d{4}-\d\d-\d\d$/.test(r.date || '')), company).sort((a, b) => a.date < b.date ? -1 : a.date > b.date ? 1 : 0);
+  const role = roles.join(' '), fits = r => { const h = hintOf(r.company); return !!h && new RegExp('\\b' + reEsc(h) + '\\b', 'i').test(role); };
+  const r = rows.find(fits) || rows.find(x => !hintOf(x.company)) || rows[0];
+  if (r) return stEvent(stage, r, 'occap');
+  const f = feedCo && feedCo[stage];
+  return f && /^\d{4}-\d\d-\d\d$/.test(f.date || '') ? stEvent(stage, { date: f.date, time: f.time, mode: f.mode, tentative: !f.confirmed }, 'feed') : null;
+}
+
+const RANK = { registration: 1, test: 2, interview: 3 }, ONLIST = ['test_shortlist', 'interview_shortlist', 'registration_shortlist', 'additional_shortlist'];
+// One card per company: the steps you reached (registration shortlist, test shortlist, test, interview shortlist,
+// interview, result), the next dated step, and an outcome chip:
+//   selected        the selection status sheet lists you (in its words: "Blocked for Selected Company", ...)
+//   not_shortlisted the company's next list exists and you are not on it, though you were on its earlier list
+//   not_selected    the company's interview has passed, its results are out, and the results do not list you
+//   waitlisted      you are only on a waitlist at the furthest step you reached
+//   upcoming        your next step is in the future, or its date is not announced yet
+//   awaiting        your last step has passed and the company's results are not out
+//   withdrawn       every entry was later removed from its list
+// Upcoming cards first (soonest first, undated last), then the rest, most recent first.
+export function statusCards(data, feedCos, now = Date.now()) {
+  const d = data || {}, sched = d.schedule || [], lists = d.lists || [], results = d.results || [], cos = (feedCos || []).filter(c => c.kind !== 'task');
+  const groups = new Map();
+  for (const it of d.items || []) { const k = coNorm(it.company) || clean(it.company).toLowerCase(); if (!groups.has(k)) groups.set(k, []); groups.get(k).push(it); }
+  const passed = e => !!e && now >= e.until, cards = [];
+  for (const [key, xs] of groups) {
+    const live = xs.filter(i => !i.withdrawn_from_list), at = (st, kinds) => live.filter(i => stageOf(i) === st && kinds.includes(i.kind));
+    const on = {}, wl = {};
+    for (const st of ['registration', 'test', 'interview']) { on[st] = at(st, ONLIST); wl[st] = at(st, ['waitlist']); }
+    const sel = live.filter(i => i.kind === 'selected'), reach = ['interview', 'test', 'registration'].find(s => on[s].length || wl[s].length) || '';
+    const top = reach ? on[reach].concat(wl[reach]) : sel.length ? sel : xs, company = top[0].company, roles = [...new Set(top.map(i => clean(i.role)).filter(Boolean))];
+    const hasList = st => coRows(lists.filter(l => l.stage === st), company).length > 0, fc = companyMatch(company, cos)[0];
+    const ev = { test: stPick(sched, fc, company, 'test', roles), interview: stPick(sched, fc, company, 'interview', roles) };
+    const waitOnly = !!reach && !on[reach].length, wpos = waitOnly ? Math.min(...wl[reach].map(i => i.position || Infinity)) : 0;
+    let outcome = null;
+    if (!live.length) outcome = { code: 'withdrawn', label: 'No longer listed' };
+    else if (sel.length) outcome = { code: 'selected', label: sel.map(i => clean(i.note)).find(t => /blocked|dream/i.test(t)) || 'Selected' };
+    else if (reach === 'registration' && hasList('test')) outcome = { code: 'not_shortlisted', label: 'Not shortlisted for test' };
+    else if (RANK[reach] < 3 && hasList('interview')) outcome = { code: 'not_shortlisted', label: 'Not shortlisted for interview' };
+    else if (coRows(results, company).length && passed(ev.interview)) outcome = { code: 'not_selected', label: 'Not selected' };
+    else if (waitOnly) outcome = { code: 'waitlisted', label: 'Waitlisted' + (isFinite(wpos) ? ' #' + wpos : '') };
+    const rel = reach === 'interview' ? ev.interview : reach ? ev.test : null; // registration: the test it leads to
+    const next = rel && !passed(rel) ? rel : null, tba = !!reach && !rel;
+    outcome = outcome || (next || tba ? { code: 'upcoming', label: 'Upcoming' } : { code: 'awaiting', label: 'Awaiting result' });
+    const steps = [], step = (label, state, e) => steps.push(e ? { label, state, date: e.date } : { label, state });
+    if (on.registration.length || wl.registration.length) step('Registration shortlist', on.registration.length ? 'done' : 'wait');
+    if (on.test.length || wl.test.length) { step('Test shortlist', on.test.length ? 'done' : 'wait'); step('Test', passed(ev.test) ? 'done' : 'next', ev.test); }
+    else if (outcome.label === 'Not shortlisted for test') step('Test shortlist', 'no');
+    if (on.interview.length || wl.interview.length) { step('Interview shortlist', on.interview.length ? 'done' : 'wait'); step('Interview', passed(ev.interview) ? 'done' : 'next', ev.interview); }
+    else if (outcome.label === 'Not shortlisted for interview') step('Interview shortlist', 'no');
+    if (!steps.some(s => s.state === 'no')) step('Result', sel.length ? 'done' : outcome.code === 'not_selected' ? 'no' : 'todo');
+    const mineEv = [on.test.length || wl.test.length ? ev.test : null, on.interview.length || wl.interview.length ? ev.interview : null].filter(passed);
+    cards.push({ key, company, roles, outcome, next, tba, steps, upcoming: ['upcoming', 'waitlisted'].includes(outcome.code) && !!(next || tba),
+      ids: xs.map(i => i.id), gone: xs.filter(i => i.withdrawn_from_list), recent: Math.max(0, ...xs.map(i => Date.parse(i.first_seen) || 0), ...mineEv.map(e => e.until)) });
+  }
+  const soon = c => c.next ? c.next.ms : Infinity;
+  return cards.sort((a, b) => b.upcoming - a.upcoming || (a.upcoming ? soon(a) - soon(b) : b.recent - a.recent) || (a.company < b.company ? -1 : 1));
+}
