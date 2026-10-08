@@ -5,21 +5,27 @@ import assert from 'node:assert/strict';
 import { readFileSync, writeFileSync, existsSync, mkdtempSync } from 'node:fs';
 import { createHash } from 'node:crypto';
 import { spawnSync } from 'node:child_process';
+import { createRequire } from 'node:module';
+import vm from 'node:vm';
 import { tmpdir } from 'node:os';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import * as A from './core.js';
 
-const ROOT = dirname(fileURLToPath(import.meta.url)), rd = f => readFileSync(join(ROOT, f));
+const ROOT = dirname(fileURLToPath(import.meta.url)), rd = f => readFileSync(join(ROOT, f)), require = createRequire(import.meta.url);
 const NOW = Date.parse('2026-09-23T09:00:00+05:30');
 const sha = (alg, s) => alg + '-' + createHash(alg).update(s).digest('base64');
-const STYLE = /<style>([\s\S]*?)<\/style>/, MAP = /<script type="importmap">([\s\S]*?)<\/script>/;
+const STYLE = /<style>([\s\S]*?)<\/style>/, MAP = /<script type="importmap">([\s\S]*?)<\/script>/, CSP = /http-equiv="Content-Security-Policy" content="([^"]+)"/;
+// The Azure copy of the site sends the same policy as a header, plus frame-ancestors (which a meta tag cannot set).
+const swaCsp = csp => csp + "; frame-ancestors 'none'";
 if (process.argv.includes('--fix')) {
   let html = rd('index.html').toString();
   html = html.replace(MAP, (_, m) => { const j = JSON.parse(m); for (const u of Object.keys(j.integrity)) j.integrity[u] = sha('sha384', rd(u)); return `<script type="importmap">${JSON.stringify(j)}</script>`; });
   html = html.replace(/(src="app\.js" integrity=")[^"]*/, '$1' + sha('sha384', rd('app.js')));
   html = html.replace(/script-src [^;]*/, `script-src 'self' '${sha('sha256', MAP.exec(html)[1])}'`).replace(/style-src [^;]*/, `style-src '${sha('sha256', STYLE.exec(html)[1])}'`);
   writeFileSync(join(ROOT, 'index.html'), html);
+  const cfg = rd('staticwebapp.config.json').toString();
+  writeFileSync(join(ROOT, 'staticwebapp.config.json'), cfg.replace(/("content-security-policy": )"[^"]*"/, (_, k) => k + JSON.stringify(swaCsp(CSP.exec(html)[1]))));
 }
 
 const FEED = { companies: [
@@ -499,6 +505,114 @@ test('index.html: CSP and SRI hashes match the files; nothing third-party; preca
   for (const i of man.icons) assert.ok(existsSync(join(ROOT, i.src)), i.src);
   const shell = JSON.parse(/SHELL = (\[[^\]]*\])/.exec(rd('sw.js').toString())[1].replace(/'/g, '"'));
   for (const f of shell) assert.ok(existsSync(join(ROOT, f === './' ? 'index.html' : f)), 'precache ' + f);
+});
+
+/* ---------------------------------------------------------------- My status: API, cards, service worker, config, tools */
+const API = require('./api/shared/status.js');
+const b64 = o => Buffer.from(JSON.stringify(o)).toString('base64');
+const SKEY = Buffer.alloc(32, 7).toString('base64');
+const who = (userDetails, identityProvider = 'aad') => ({ 'x-ms-client-principal': b64({ identityProvider, userId: 'u1', userDetails, userRoles: ['anonymous', 'authenticated'] }) });
+const RECS = { v: 1, updated: '2026-10-09T10:00:00Z',
+  students: {
+    'student1@iisc.ac.in': [{ id: 'a1', kind: 'interview_shortlist', company: 'Acme', role: 'HPC Eng', list: 'Shortlist for Interview', position: 3, note: '', first_seen: '2026-10-09', internal: 'x' }],
+    'student2@iisc.ac.in': [{ id: 'b1', kind: 'selected', company: 'Qualcomm', role: 'GPU', list: 'Selection Status', position: null, note: 'Blocked for Selected Company', first_seen: '2026-10-09' }] },
+  lists: [{ stage: 'interview', company: 'Acme', role: 'HPC Eng', list: 'Shortlist for Interview' }],
+  results: [{ company: 'Qualcomm', slot: 'Slot 1' }],
+  schedule: [{ stage: 'interview', company: 'Acme', date: '2026-10-12', time: '10:00 AM - 12:00 PM', mode: 'In Person', venue: 'TBD', tentative: false, sheet: 'Slot 1 Interview Schedule' }] };
+
+test('api: signed-in principal and the IISc rule', () => {
+  const P = (e, p) => API.principal(who(e, p)['x-ms-client-principal']);
+  assert.deepEqual(P(' Student1@IISc.ac.in '), { status: 200, email: 'student1@iisc.ac.in' }, 'trimmed, lower case');
+  assert.equal(P('student1@iisc.ac.in', 'github').status, 403, 'GitHub sign-in refused');
+  assert.equal(P('someone@outlook.com').status, 403, 'a personal Microsoft account is refused');
+  assert.match(P('someone@outlook.com').error, /IISc Microsoft account/);
+  for (const e of ['x@iisc.ac.in.evil.org', 'x@sub.iisc.ac.in', '@iisc.ac.in', 'x y@iisc.ac.in', '']) assert.equal(P(e).status, 403, e);
+  assert.equal(API.principal(undefined).status, 401, 'no header');
+  assert.equal(API.principal('').status, 401);
+  assert.equal(API.principal('%%% not base64 json').status, 401);
+});
+
+test('api: AES-256-GCM records round trip; wrong key and tampering refused', () => {
+  const f = API.seal(RECS, SKEY);
+  assert.deepEqual(Object.keys(f), ['v', 'alg', 'iv', 'ct']);
+  assert.ok(!/student|acme|iisc|qualcomm/i.test(JSON.stringify(f)), 'ciphertext only');
+  assert.deepEqual(API.open(f, SKEY), RECS);
+  assert.throws(() => API.open(f, Buffer.alloc(32, 8).toString('base64')), 'wrong key');
+  const ct = Buffer.from(f.ct, 'base64'); ct[3] ^= 1;
+  assert.throws(() => API.open(Object.assign({}, f, { ct: ct.toString('base64') }), SKEY), 'tampered');
+  assert.throws(() => API.seal(RECS, Buffer.alloc(16).toString('base64')), /32 bytes/);
+  assert.throws(() => API.open({ v: 2 }, SKEY), /not a status file/);
+  assert.notEqual(API.seal(RECS, SKEY).iv, f.iv, 'fresh IV each time');
+});
+
+test('api: GET /api/status returns only the caller\'s entries; cache, stale copy, errors; no emails in logs', async () => {
+  let t = 0, calls = 0, fail = false;
+  const logs = [], file = API.seal(RECS, SKEY), log = m => logs.push(m);
+  const fetch = async url => { calls++; assert.equal(url, API.STATUS_URL); return fail ? new Response('bad gateway', { status: 502 }) : new Response(JSON.stringify(file)); };
+  const h = API.makeHandler({ env: { STATUS_KEY: SKEY }, fetch, now: () => t, log });
+  let r = await h(who('Student1@iisc.ac.in'));
+  assert.equal(r.status, 200); assert.equal(r.headers['cache-control'], 'no-store');
+  const body = JSON.parse(r.body);
+  assert.deepEqual(body.items, [{ id: 'a1', kind: 'interview_shortlist', company: 'Acme', role: 'HPC Eng', list: 'Shortlist for Interview', position: 3, note: '', first_seen: '2026-10-09' }], 'only the listed fields');
+  assert.deepEqual([body.email, body.updated], ['student1@iisc.ac.in', '2026-10-09T10:00:00Z']);
+  assert.ok(!/student2|Blocked|GPU/.test(r.body), 'nothing about anyone else');
+  assert.deepEqual(body.results, [{ company: 'Qualcomm', slot: 'Slot 1' }], 'company-level facts only');
+  assert.equal(body.schedule[0].sheet, undefined);
+  assert.deepEqual(JSON.parse((await h(who('student3@iisc.ac.in'))).body).items, [], 'not on any list: no entries');
+  assert.equal(calls, 1, 'decrypted copy reused for 5 minutes');
+  t += API.TTL; fail = true;
+  assert.equal((await h(who('student1@iisc.ac.in'))).status, 200, 'a stale copy beats an error'); assert.equal(calls, 2);
+  r = await API.makeHandler({ env: { STATUS_KEY: SKEY }, fetch, now: () => t, log })(who('student1@iisc.ac.in'));
+  assert.equal(r.status, 503); assert.match(JSON.parse(r.body).error, /Try again/);
+  assert.equal((await API.makeHandler({ env: {}, fetch, log })(who('student1@iisc.ac.in'))).status, 503, 'no STATUS_KEY: not set up');
+  r = await API.makeHandler({ env: { STATUS_KEY: Buffer.alloc(32, 9).toString('base64') }, fetch: async () => new Response(JSON.stringify(file)), log })(who('student1@iisc.ac.in'));
+  assert.equal(r.status, 503, 'wrong key: generic error');
+  assert.equal((await h({})).status, 401);
+  assert.equal((await h(who('student1@outlook.com'))).status, 403);
+  assert.equal((await h(who('student1@iisc.ac.in', 'github'))).status, 403);
+  assert.ok(logs.length >= 3 && logs.every(l => !/@|student|acme/i.test(l)), 'logs carry no emails or records: ' + logs.join(' | '));
+  const own = API.makeHandler({ env: { STATUS_KEY: SKEY, STATUS_URL: 'https://example.org/s' }, fetch: async u => { assert.equal(u, 'https://example.org/s'); return new Response(JSON.stringify(file)); } });
+  assert.equal((await own(who('student1@iisc.ac.in'))).status, 200, 'STATUS_URL overrides the release asset');
+  const fn = require('./api/status/index.js'), ctx = {};
+  await fn(ctx, { headers: {} });
+  assert.equal(ctx.res.status, 401, 'Functions v3 entry point wired to the handler');
+  const fj = JSON.parse(rd('api/status/function.json')).bindings[0];
+  assert.deepEqual([fj.type, fj.route, fj.methods], ['httpTrigger', 'status', ['get']]);
+});
+
+test('staticwebapp.config.json: Microsoft sign-in only, API for signed-in users, same CSP as index.html', () => {
+  const cfg = JSON.parse(rd('staticwebapp.config.json')), csp = CSP.exec(rd('index.html').toString())[1], route = r => cfg.routes.find(x => x.route === r) || {};
+  assert.deepEqual(route('/api/*').allowedRoles, ['authenticated']);
+  assert.equal(cfg.routes[0].route, '/api/*', 'first rule');
+  assert.equal(route('/.auth/login/github').statusCode, 404, 'GitHub sign-in blocked');
+  assert.deepEqual([route('/login').redirect, route('/logout').redirect], ['/.auth/login/aad', '/.auth/logout']);
+  assert.deepEqual(cfg.responseOverrides['401'], { statusCode: 302, redirect: '/.auth/login/aad?post_login_redirect_uri=.referrer' });
+  assert.equal(cfg.globalHeaders['content-security-policy'], swaCsp(csp), 'header CSP = index.html CSP (run node test.mjs --fix)');
+  assert.match(csp, /connect-src 'self'/, '/api and /.auth are same-origin');
+  assert.ok(['/api/*', '/.auth/*'].every(x => cfg.navigationFallback.exclude.includes(x)));
+  assert.equal(cfg.platform.apiRuntime, 'node:22');
+  const swa = rd('.github/workflows/swa.yml').toString();
+  assert.match(swa, /secrets\.AZURE_STATIC_WEB_APPS_API_TOKEN/); assert.match(swa, /if: needs\.gate\.outputs\.ready == 'true'/, 'skipped, not failed, without the secret');
+  assert.match(swa, /api_location: api/); assert.match(swa, /sed -i "s\/const V = 'hq-dev'/, 'same cache-name rewrite as Pages');
+  for (const f of ['.status-key', 'records.json', 'status.enc.json']) assert.ok(rd('.gitignore').toString().split(/\r?\n/).includes(f), '.gitignore: ' + f);
+});
+
+test('tools/status.mjs: refuses bad records, encrypts what the API opens, shows the key on request', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'hq-st-')), w = (f, s) => { writeFileSync(join(dir, f), s); return join(dir, f); };
+  const keyFile = join(dir, 'k'), out = join(dir, 'out.json');
+  const run = (...a) => spawnSync(process.execPath, [join(ROOT, 'tools/status.mjs'), '--key-file', keyFile, ...a], { encoding: 'utf8' });
+  let r = run('--records', w('ok.json', JSON.stringify(RECS)), '--out', out);
+  assert.equal(r.status, 0, r.stderr);
+  assert.match(r.stdout, /2 students, 2 entries/);
+  const key = readFileSync(keyFile, 'utf8').trim();
+  assert.equal(Buffer.from(key, 'base64').length, 32, 'new 32-byte key, base64');
+  assert.deepEqual(API.open(JSON.parse(readFileSync(out, 'utf8')), key), RECS, 'the API can open it');
+  assert.equal(run('--show-key').stdout.trim(), key);
+  const other = { ...RECS, students: { 'someone@outlook.com': [] } };
+  assert.match(run('--records', w('bad.json', JSON.stringify(other))).stderr, /not IISc addresses/);
+  const phone = JSON.parse(JSON.stringify(RECS)); phone.students['student1@iisc.ac.in'][0].note = 'call 98450 00000';
+  assert.match(run('--records', w('ph.json', JSON.stringify(phone))).stderr, /phone number/);
+  assert.notEqual(run('--records', join(dir, 'missing.json')).status, 0);
 });
 
 test('real feed (HQ_FEED, local only)', { skip: !process.env.HQ_FEED && 'set HQ_FEED=<feed.json> to run' }, async () => {

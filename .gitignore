@@ -2,4 +2,10 @@
 feed.enc.json
 *.feed.json
 .batch-key
+# Per-student status: the key, and any records or encrypted copy that lands here by mistake (they live outside the repo).
+.status-key
+records.json
+*.records.json
+status.enc.json
+.uploaded
 node_modules/

@@ -1,0 +1,58 @@
+# Deploys the same site, plus the API in api/ (GET /api/status for "My status"), to Azure Static Web Apps, where
+# Microsoft sign-in works. The code comes from git and the encrypted feed from the `feed` release asset, as on Pages.
+# Skipped (not failed) until the repository secret AZURE_STATIC_WEB_APPS_API_TOKEN exists: see tools/STATUS_SETUP.md.
+name: swa
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: swa
+  cancel-in-progress: true
+jobs:
+  gate:
+    runs-on: ubuntu-latest
+    outputs:
+      ready: ${{ steps.check.outputs.ready }}
+    steps:
+      - id: check
+        env:
+          TOKEN: ${{ secrets.AZURE_STATIC_WEB_APPS_API_TOKEN }}
+        run: |
+          if [ -n "$TOKEN" ]; then
+            echo "ready=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "ready=false" >> "$GITHUB_OUTPUT"
+            echo "::notice::AZURE_STATIC_WEB_APPS_API_TOKEN is not set, so the Azure deploy is skipped (see tools/STATUS_SETUP.md)."
+          fi
+  deploy:
+    needs: gate
+    if: needs.gate.outputs.ready == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: node test.mjs
+      - name: Assemble the site
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          mkdir _site
+          cp -r index.html app.js core.js sw.js manifest.webmanifest icons vendor LICENSE staticwebapp.config.json _site/
+          gh release download feed --repo "$GITHUB_REPOSITORY" --pattern feed.enc.json --dir _site || echo "No feed release yet: the site shows its locked screen."
+          # Same shell cache name as on Pages, so installed apps pick up each new version.
+          V=$(cat _site/index.html _site/app.js _site/core.js _site/manifest.webmanifest | sha256sum | cut -c1-12)
+          sed -i "s/const V = 'hq-dev'/const V = 'hq-$V'/" _site/sw.js
+      - uses: Azure/static-web-apps-deploy@v1
+        with:
+          azure_static_web_apps_api_token: ${{ secrets.AZURE_STATIC_WEB_APPS_API_TOKEN }}
+          action: upload
+          app_location: _site
+          api_location: api
+          output_location: ''
+          skip_app_build: true
+          skip_api_build: true

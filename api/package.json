@@ -1,0 +1,8 @@
+{
+  "name": "placement-hq-api",
+  "version": "1.0.0",
+  "private": true,
+  "description": "GET /api/status for Placement HQ on Azure Static Web Apps (Functions v3 model, no dependencies)",
+  "type": "commonjs",
+  "engines": { "node": ">=20" }
+}

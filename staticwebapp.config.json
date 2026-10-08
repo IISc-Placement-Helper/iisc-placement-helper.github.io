@@ -1,0 +1,29 @@
+{
+  "routes": [
+    { "route": "/api/*", "allowedRoles": ["authenticated"] },
+    { "route": "/.auth/login/github", "statusCode": 404 },
+    { "route": "/login", "redirect": "/.auth/login/aad" },
+    { "route": "/logout", "redirect": "/.auth/logout" },
+    { "route": "/sw.js", "headers": { "cache-control": "no-cache" } },
+    { "route": "/feed.enc.json", "headers": { "cache-control": "no-cache" } }
+  ],
+  "responseOverrides": {
+    "401": { "statusCode": 302, "redirect": "/.auth/login/aad?post_login_redirect_uri=.referrer" }
+  },
+  "navigationFallback": {
+    "rewrite": "/index.html",
+    "exclude": ["/api/*", "/.auth/*", "/vendor/*", "/icons/*", "*.{js,mjs,json,webmanifest,png,svg,txt}"]
+  },
+  "globalHeaders": {
+    "content-security-policy": "default-src 'self'; script-src 'self' 'sha256-jedq/ViWz9/1LnURtdCBAzjM2y+CQDQhu19lUnAIFCg='; style-src 'sha256-IEeA8nZBFE7P+VfYOBKEDduiBnQD6IxRCR0HYv5Cgzc='; img-src 'self' data:; connect-src 'self' https://api.github.com https://gist.githubusercontent.com; worker-src 'self' blob:; object-src 'none'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'",
+    "x-content-type-options": "nosniff",
+    "referrer-policy": "no-referrer"
+  },
+  "mimeTypes": {
+    ".mjs": "text/javascript",
+    ".webmanifest": "application/manifest+json"
+  },
+  "platform": {
+    "apiRuntime": "node:22"
+  }
+}
