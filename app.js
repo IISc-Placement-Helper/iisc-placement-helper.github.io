@@ -279,11 +279,13 @@ V.settings = () => {
 
 /* ---------------------------------------------------------------- My status (Microsoft sign-in on the Azure address; GET /api/status) */
 // ME: undefined while checking; null where this address has no sign-in (GitHub Pages, a local server); false when
-// signed out; else {email, ok}. Per account on this device, under the SHA-256 of its email: {data, seen, told}.
-let ME, MEH = '', STMSG = '', stBusy = false, stAt = 0;
+// signed out; else {email, ok}. Per account on this device, under the SHA-256 of its email: st:<hash> = {data,
+// seen, told} and stcode:<hash> = the personal code from the student's IISc mail, sent as x-hq-code. The API
+// answers need: 'code' until the right code comes with the sign-in (NEEDCODE; CODEMSG explains a wrong one).
+let ME, MEH = '', STMSG = '', CODEMSG = '', NEEDCODE = false, stBusy = false, stAt = 0;
 const stGet = () => { try { return MEH && JSON.parse(ls('st:' + MEH)) || {}; } catch { return {}; } };
 const stPut = x => ls('st:' + MEH, JSON.stringify(Object.assign(stGet(), x)));
-const stFresh = () => { const s = ME && ME.ok ? stGet() : {}; return s.data ? C.newIds(s.data.items, s.seen) : []; };
+const stFresh = () => { const s = ME && ME.ok && !NEEDCODE ? stGet() : {}; return s.data ? C.newIds(s.data.items, s.seen) : []; };
 const fShort = d => new Date(C.istMs(d, '12:00')).toLocaleDateString('en-IN', Object.assign({ day: 'numeric', month: 'short' }, TZ));
 
 async function authMe() {
@@ -307,12 +309,19 @@ async function stRefresh(force) {
   if (!ME || !ME.ok || stBusy || !force && Date.now() - stAt < 60000) return;
   stBusy = true; stAt = Date.now();
   try {
-    const r = await fetch('/api/status', { cache: 'no-store', redirect: 'manual' });
+    const code = ls('stcode:' + MEH);
+    const r = await fetch('/api/status', { cache: 'no-store', redirect: 'manual', headers: code ? { 'x-hq-code': code } : {} });
     if (r.type === 'opaqueredirect' || r.status === 401) { ME = false; STMSG = 'Your sign-in has expired. Sign in again.'; }
-    else if (!r.ok) STMSG = (await r.json().catch(() => ({}))).error || `Could not load your entries (error ${r.status}). Try again later.`;
-    else {
+    else if (!r.ok) {
+      const j = await r.json().catch(() => ({}));
+      if (j.need === 'code') {
+        NEEDCODE = true; STMSG = '';
+        CODEMSG = code ? j.error || 'That code does not match your IISc account.' : '';
+        if (code) ls('stcode:' + MEH, null);
+      } else STMSG = j.error || `Could not load your entries (error ${r.status}). Try again later.`;
+    } else {
       const data = await r.json(), s = stGet();
-      STMSG = '';
+      STMSG = ''; CODEMSG = ''; NEEDCODE = false;
       // The first load seeds `told`: what is already there is shown as new, without a notification.
       stPut({ data, seen: s.seen || [], told: s.told || data.items.map(i => i.id) });
       await stTell();
@@ -352,9 +361,15 @@ function stCard(c, lead, fresh) {
     when ? `<p class="nx">${when}</p>` : ''}<ol class="steps" aria-label="Steps">${c.steps.map(s => `<li class="${s.state}">${esc(s.label)}${s.date ? ' · ' + esc(fShort(s.date)) : ''}<span class="vh"> (${STEPW[s.state]})</span></li>`).join('')}</ol>${
     c.gone.length ? `<p class="mu">Later removed from: ${esc([...new Set(c.gone.map(i => i.list))].join(', '))}.</p>` : ''}</article>`;
 }
+// Asked once per device; the code is kept with this account's entries and removed by Sign out.
+const stCodeForm = () => `<form id="st-code" class="card"><p>Enter the personal code OCCaP-helper sent to your IISc email. You need it once on each device.</p>${
+  CODEMSG ? `<p class="warn" role="alert">${esc(CODEMSG)}</p>` : ''}<label>Personal code <input id="stcode" autocomplete="off" autocapitalize="characters" spellcheck="false" placeholder="XXXXX-XXXXX" maxlength="24"></label>
+  <button>Continue</button><p class="mu">Wrong code? Ask the site admin to resend it.</p></form>`;
 function stBody() {
   const s = stGet(), d = s.data, fresh = new Set(stFresh()), N = 'Notification' in window ? Notification.permission : '';
-  let h = `<div class="acct"><span>Signed in as <b>${esc(ME.email)}</b></span><button class="link" data-act="stout">Sign out</button></div>`;
+  let h = `<div class="acct"><span>Signed in as <b>${esc(ME.email)}</b></span><button class="link" data-act="stout">Sign out</button></div>
+    <p class="mu">Signing out also removes your saved entries and your personal code from this device.</p>`;
+  if (NEEDCODE) return h + stCodeForm();
   const bar = [N && N !== 'denied' && !(N === 'granted' && ls('stnote') === '1') && '<button class="ghost" data-act="stnote">Enable notifications</button>',
     fresh.size && `<button class="ghost" data-act="stseen">Mark all seen (${fresh.size})</button>`].filter(Boolean);
   if (bar.length) h += `<div class="bar">${bar.join('')}</div>`;
@@ -469,7 +484,7 @@ const ACT = {
   // Sign-in and sign-out leave the app for /.auth and come back to My status.
   stin: () => { ls('view', 'status'); location.href = '/.auth/login/aad?post_login_redirect_uri=' + encodeURIComponent(location.origin + '/'); },
   stout: () => {
-    if (MEH) ls('st:' + MEH, null); // this account's saved entries and seen list leave this device
+    if (MEH) { ls('st:' + MEH, null); ls('stcode:' + MEH, null); } // this account's entries, seen list and code leave this device
     ls('view', 'status');
     location.href = '/.auth/logout?post_logout_redirect_uri=' + encodeURIComponent(location.origin + '/');
   },
@@ -587,6 +602,14 @@ document.addEventListener('toggle', e => {
   if (d.matches('details.jd')) { const b = d.querySelector('.jdt'); if (!b.innerHTML) b.innerHTML = C.linkify(FEED.jd_docs[d.dataset.i].text); }
   if (d.id === 'qrbox') drawQr();
 }, true);
+document.addEventListener('submit', e => {
+  if (e.target.id !== 'st-code') return;
+  e.preventDefault();
+  const c = C.normCode($('#stcode').value);
+  if (!c) { CODEMSG = 'A personal code has 10 letters and digits, like ABCDE-12345.'; V.status(); $('#stcode').focus(); return; }
+  ls('stcode:' + MEH, c); CODEMSG = '';
+  stRefresh(true);
+});
 const link = s => new URLSearchParams(s.includes('#') ? s.split('#')[1] : 'k=' + s); // a pasted link, a location.hash or a bare key
 $('#lock-form').addEventListener('submit', e => {
   e.preventDefault();

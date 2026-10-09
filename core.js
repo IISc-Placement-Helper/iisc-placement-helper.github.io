@@ -576,6 +576,9 @@ export const STATUS_ORIGIN = '';
 // The API enforces the same rule; the app uses it to explain a sign-in with the wrong account.
 export const okEmail = e => /^[a-z0-9][a-z0-9._%+'-]*@iisc\.ac\.in$/.test(e);
 export const sha256hex = async s => hex(await sub().digest('SHA-256', te.encode(s)));
+// The personal code mailed to each student (XXXXX-XXXXX, Crockford base32): any case, dashes and spaces ignored,
+// O read as 0, I and L as 1, exactly as the API reads it. '' when the shape is wrong.
+export const normCode = s => { const c = String(s || '').toUpperCase().replace(/[\s-]+/g, '').replace(/O/g, '0').replace(/[IL]/g, '1'); return /^[0-9A-HJKMNP-TV-Z]{10}$/.test(c) ? c : ''; };
 
 // The step of the season an entry belongs to, from its list ("Shortlist for Interview", ...).
 export const stageOf = it => it.kind === 'selected' ? 'result' : /interview/i.test(it.list) ? 'interview' : /regist/i.test(it.list) ? 'registration' : 'test';

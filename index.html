@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'sha256-+OU35GbfSCVDFubbIJZ+CzU4SLwKAJ78wzHH4MbQUow='; style-src 'sha256-N8lW4WvU5b593306xzX9VvvXIxMf4zvFxouMEQTRt2I='; img-src 'self' data:; connect-src 'self' https://api.github.com https://gist.githubusercontent.com; worker-src 'self' blob:; object-src 'none'; base-uri 'none'; form-action 'none'">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'sha256-XBD9XRSizZx9uYqZtZMwsx0C4Tg4r4N6jTjHLceuTZ4='; style-src 'sha256-N8lW4WvU5b593306xzX9VvvXIxMf4zvFxouMEQTRt2I='; img-src 'self' data:; connect-src 'self' https://api.github.com https://gist.githubusercontent.com; worker-src 'self' blob:; object-src 'none'; base-uri 'none'; form-action 'none'">
 <meta name="referrer" content="no-referrer">
 <meta name="color-scheme" content="light dark">
 <meta name="theme-color" content="#f4f5f7" media="(prefers-color-scheme: light)">
@@ -98,9 +98,9 @@ a.btn{text-decoration:none}.btn.pri{background:var(--acc);color:var(--on)}
 #v-status h3{margin:20px 0 8px}
 [hidden]{display:none!important}
 </style>
-<script type="importmap">{"imports":{},"integrity":{"./core.js":"sha384-Q6XDUQMBDM1tzLQIOTBUdQWHBH2XoP52vufavanukAlKzDenDop45EHdHJ5ncfZS","./vendor/pdf.min.mjs":"sha384-+0ti2moQlmLN7WZHE2RHIf5lV8hHxhxEalN0il3YZceG26fUPyOkR0hp9daxk1i7","./vendor/qrcode.mjs":"sha384-xHtsZTi0cOhTiha4kloGDUR5e5A8ixkKsF1Mmpqq3tkDpAhkA4YOKIDua/Tc0Ecd"}}</script>
+<script type="importmap">{"imports":{},"integrity":{"./core.js":"sha384-vXvf959TksOpUAEMti7ZqxWz3Y3bBSQbzgpPz5kUfdPZRfIid4+GGTrdJFbTDzU6","./vendor/pdf.min.mjs":"sha384-+0ti2moQlmLN7WZHE2RHIf5lV8hHxhxEalN0il3YZceG26fUPyOkR0hp9daxk1i7","./vendor/qrcode.mjs":"sha384-xHtsZTi0cOhTiha4kloGDUR5e5A8ixkKsF1Mmpqq3tkDpAhkA4YOKIDua/Tc0Ecd"}}</script>
 <link rel="modulepreload" href="core.js">
-<script type="module" src="app.js" integrity="sha384-1XXdkxvJ+QPE8HDqRdY3X7Tj97tYac3NPZjIpKMv25bdxd+8UhrACUFRsQZaxVDv"></script>
+<script type="module" src="app.js" integrity="sha384-6CS3P0r+PNo4n1XlldPScaBdxIZnA4SI5cPEh6rZ4osxg9/fkrhj+rfUGHAxHxcK"></script>
 </head>
 <body>
 <header class="top"><h1>Placement HQ</h1><span id="upd" class="mu"></span></header>
@@ -196,7 +196,7 @@ a.btn{text-decoration:none}.btn.pri{background:var(--acc);color:var(--on)}
 <p>The company feed is encrypted with your batch's key, which travels in the link after the # (browsers never send that part to a server). The key is membership gating, so the feed is "not public"; it is not a secret, since anyone in the batch can pass the link on.</p>
 <p>Your personal data (statuses, notes, CV text, identifiers, pasted schedules) stays on this device. It leaves only as ciphertext: in a backup file you export, or, if you turn sync on, as one encrypted file in a secret gist in your own GitHub account. The sync code that encrypts it never goes to GitHub.</p>
 <p>No analytics, no third-party scripts or fonts. Shortlist checks keep only your own matches and the schedule rows, never other students' names. The CV match runs here.</p>
-<p>My status is the one part with an account: you sign in with your IISc Microsoft account at the app's Azure address, and the site's server function decrypts the OCCaP lists to send you only your own entries. Signing out removes them from this device.</p>
+<p>My status is the one part with an account: at the app's Azure address you sign in with your IISc Microsoft account and enter the personal code mailed to your IISc inbox, and the site's server function decrypts the OCCaP lists to send you only your own entries. Signing out removes them and your code from this device.</p>
 <p>Not an official OCCaP service: always confirm dates from the OCCaP mail.</p></div>
 </section>
 </main>

@@ -2,8 +2,8 @@
 // node test.mjs --fix rewrites the CSP and SRI hashes in index.html after editing its CSS, app.js, core.js or vendor/.
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { readFileSync, writeFileSync, existsSync, mkdtempSync, statSync, chmodSync } from 'node:fs';
-import { createHash } from 'node:crypto';
+import { readFileSync, writeFileSync, existsSync, mkdtempSync, mkdirSync, statSync, chmodSync } from 'node:fs';
+import { createHash, createHmac } from 'node:crypto';
 import { spawnSync } from 'node:child_process';
 import { createRequire } from 'node:module';
 import vm from 'node:vm';
@@ -512,6 +512,9 @@ const API = require('./api/shared/status.js');
 const b64 = o => Buffer.from(JSON.stringify(o)).toString('base64');
 const SKEY = Buffer.alloc(32, 7).toString('base64');
 const who = (userDetails, identityProvider = 'aad') => ({ 'x-ms-client-principal': b64({ identityProvider, userId: 'u1', userDetails, userRoles: ['anonymous', 'authenticated'] }) });
+const CSEC = Buffer.alloc(32, 3).toString('base64'), ENV = { STATUS_KEY: SKEY, CODE_SECRET: CSEC };
+// A signed-in student who also sends their own personal code (or the one given).
+const me = (email, code = API.codeFor(CSEC, email.trim().toLowerCase())) => Object.assign(who(email), { 'x-hq-code': code });
 const RECS = { v: 1, updated: '2026-10-09T10:00:00Z',
   students: {
     'student1@iisc.ac.in': [{ id: 'a1', kind: 'interview_shortlist', company: 'Acme', role: 'HPC Eng', list: 'Shortlist for Interview', position: 3, note: '', first_seen: '2026-10-09', internal: 'x' }],
@@ -549,8 +552,8 @@ test('api: GET /api/status returns only the caller\'s entries; cache, stale copy
   let t = 0, calls = 0, fail = false;
   const logs = [], file = API.seal(RECS, SKEY), log = m => logs.push(m);
   const fetch = async url => { calls++; assert.equal(url, API.STATUS_URL); return fail ? new Response('bad gateway', { status: 502 }) : new Response(JSON.stringify(file)); };
-  const h = API.makeHandler({ env: { STATUS_KEY: SKEY }, fetch, now: () => t, log });
-  let r = await h(who('Student1@iisc.ac.in'));
+  const h = API.makeHandler({ env: ENV, fetch, now: () => t, log });
+  let r = await h(me('Student1@iisc.ac.in'));
   assert.equal(r.status, 200); assert.equal(r.headers['cache-control'], 'no-store');
   const body = JSON.parse(r.body);
   assert.deepEqual(body.items, [{ id: 'a1', kind: 'interview_shortlist', company: 'Acme', role: 'HPC Eng', list: 'Shortlist for Interview', position: 3, note: '', first_seen: '2026-10-09' }], 'only the listed fields');
@@ -558,26 +561,66 @@ test('api: GET /api/status returns only the caller\'s entries; cache, stale copy
   assert.ok(!/student2|Blocked|GPU/.test(r.body), 'nothing about anyone else');
   assert.deepEqual(body.results, [{ company: 'Qualcomm', slot: 'Slot 1' }], 'company-level facts only');
   assert.equal(body.schedule[0].sheet, undefined);
-  assert.deepEqual(JSON.parse((await h(who('student3@iisc.ac.in'))).body).items, [], 'not on any list: no entries');
+  assert.deepEqual(JSON.parse((await h(me('student3@iisc.ac.in'))).body).items, [], 'not on any list: no entries');
   assert.equal(calls, 1, 'decrypted copy reused for 5 minutes');
   t += API.TTL; fail = true;
-  assert.equal((await h(who('student1@iisc.ac.in'))).status, 200, 'a stale copy beats an error'); assert.equal(calls, 2);
-  r = await API.makeHandler({ env: { STATUS_KEY: SKEY }, fetch, now: () => t, log })(who('student1@iisc.ac.in'));
+  assert.equal((await h(me('student1@iisc.ac.in'))).status, 200, 'a stale copy beats an error'); assert.equal(calls, 2);
+  r = await API.makeHandler({ env: ENV, fetch, now: () => t, log })(me('student1@iisc.ac.in'));
   assert.equal(r.status, 503); assert.match(JSON.parse(r.body).error, /Try again/);
-  assert.equal((await API.makeHandler({ env: {}, fetch, log })(who('student1@iisc.ac.in'))).status, 503, 'no STATUS_KEY: not set up');
-  r = await API.makeHandler({ env: { STATUS_KEY: Buffer.alloc(32, 9).toString('base64') }, fetch: async () => new Response(JSON.stringify(file)), log })(who('student1@iisc.ac.in'));
+  assert.equal((await API.makeHandler({ env: { CODE_SECRET: CSEC }, fetch, log })(me('student1@iisc.ac.in'))).status, 503, 'no STATUS_KEY: not set up');
+  r = await API.makeHandler({ env: { ...ENV, STATUS_KEY: Buffer.alloc(32, 9).toString('base64') }, fetch: async () => new Response(JSON.stringify(file)), log })(me('student1@iisc.ac.in'));
   assert.equal(r.status, 503, 'wrong key: generic error');
   assert.equal((await h({})).status, 401);
-  assert.equal((await h(who('student1@outlook.com'))).status, 403);
-  assert.equal((await h(who('student1@iisc.ac.in', 'github'))).status, 403);
+  assert.equal((await h(me('student1@outlook.com'))).status, 403);
+  assert.equal((await h(Object.assign(who('student1@iisc.ac.in', 'github'), { 'x-hq-code': API.codeFor(CSEC, 'student1@iisc.ac.in') }))).status, 403);
   assert.ok(logs.length >= 3 && logs.every(l => !/@|student|acme/i.test(l)), 'logs carry no emails or records: ' + logs.join(' | '));
-  const own = API.makeHandler({ env: { STATUS_KEY: SKEY, STATUS_URL: 'https://example.org/s' }, fetch: async u => { assert.equal(u, 'https://example.org/s'); return new Response(JSON.stringify(file)); } });
-  assert.equal((await own(who('student1@iisc.ac.in'))).status, 200, 'STATUS_URL overrides the release asset');
+  const own = API.makeHandler({ env: { ...ENV, STATUS_URL: 'https://example.org/s' }, fetch: async u => { assert.equal(u, 'https://example.org/s'); return new Response(JSON.stringify(file)); } });
+  assert.equal((await own(me('student1@iisc.ac.in'))).status, 200, 'STATUS_URL overrides the release asset');
   const fn = require('./api/status/index.js'), ctx = {};
   await fn(ctx, { headers: {} });
   assert.equal(ctx.res.status, 401, 'Functions v3 entry point wired to the handler');
   const fj = JSON.parse(rd('api/status/function.json')).bindings[0];
   assert.deepEqual([fj.type, fj.route, fj.methods], ['httpTrigger', 'status', ['get']]);
+});
+
+test('api: personal code: shape, normalisation, spoofed sign-ins refused, timing-safe compare, no fallback', async () => {
+  const E1 = 'student1@iisc.ac.in', E2 = 'student2@iisc.ac.in', c1 = API.codeFor(CSEC, E1), c2 = API.codeFor(CSEC, E2);
+  assert.match(c1, /^[0-9A-HJKMNP-TV-Z]{5}-[0-9A-HJKMNP-TV-Z]{5}$/, 'XXXXX-XXXXX in Crockford base32: no I, L, O or U');
+  assert.equal(API.codeFor(CSEC, E1), c1, 'derived again on demand, never stored');
+  assert.notEqual(c1, c2);
+  assert.notEqual(API.codeFor(Buffer.alloc(32, 4).toString('base64'), E1), c1, 'another secret, other codes');
+  const mac = createHmac('sha256', Buffer.alloc(32, 3)).update('hq-code-v1|' + E1).digest(), bits = [...mac].map(x => x.toString(2).padStart(8, '0')).join('');
+  assert.equal(c1.replace('-', ''), [...Array(10)].map((_, i) => '0123456789ABCDEFGHJKMNPQRSTVWXYZ'[parseInt(bits.slice(i * 5, i * 5 + 5), 2)]).join(''), 'first 50 bits of HMAC-SHA256(secret, "hq-code-v1|" + email)');
+  const typed = ` ${c1.toLowerCase().replace('-', ' - ')} `;
+  assert.equal(API.normCode(typed), c1.replace('-', ''), 'any case; spaces and dashes ignored');
+  assert.equal(API.normCode('o1l-I0'), '01110', 'O read as 0, I and L as 1');
+  assert.ok(API.checkCode(CSEC, E1, typed));
+  for (const bad of [c2, '', 'ABCDE', c1.replace('-', '') + 'X', c1.slice(0, -1) + (c1.endsWith('0') ? '1' : '0')]) assert.equal(API.checkCode(CSEC, E1, bad), false, bad || '(empty)');
+  assert.equal(A.normCode(typed), API.normCode(typed), 'the app reads codes as the API does');
+  assert.equal(A.normCode('ABCDE'), ''); assert.equal(A.normCode('UUUUU-UUUUU'), '', 'U is not in the alphabet');
+  const nc = require('node:crypto'), real = nc.timingSafeEqual;
+  let compared = 0;
+  nc.timingSafeEqual = (a, b) => { compared++; assert.equal(a.length, b.length); return real(a, b); };
+  try { assert.ok(API.checkCode(CSEC, E1, c1)); assert.ok(!API.checkCode(CSEC, E1, c2)); } finally { nc.timingSafeEqual = real; }
+  assert.equal(compared, 2, 'crypto.timingSafeEqual decides');
+  // "nOAuth": an account in someone else's tenant claiming a victim's address gets nothing without the victim's code.
+  const logs = [], fetch = async () => new Response(JSON.stringify(API.seal(RECS, SKEY))), h = API.makeHandler({ env: ENV, fetch, log: m => logs.push(m) });
+  let r = await h(who(E2));
+  assert.deepEqual([r.status, JSON.parse(r.body).need], [428, 'code'], 'no code: 428');
+  assert.equal((await h(me(E2, ''))).status, 428, 'an empty code counts as none');
+  r = await h(me(E2, c1));
+  assert.deepEqual([r.status, JSON.parse(r.body).need], [403, 'code'], 'the attacker\'s own valid code does not open the victim\'s entries');
+  assert.match(JSON.parse(r.body).error, /does not match/);
+  assert.ok(!/Blocked|GPU|Qualcomm|items/.test(r.body), 'no data with a refusal');
+  r = await h(me(E2));
+  assert.equal(r.status, 200); assert.equal(JSON.parse(r.body).items[0].note, 'Blocked for Selected Company', 'sign-in plus the right code: data');
+  assert.equal((await h(new Headers(me(E2, typed)))).status, 403, 'a Headers object works; student1\'s code still fails for student2');
+  assert.equal((await h(new Headers(me(E2)))).status, 200);
+  for (const env of [{ STATUS_KEY: SKEY }, { STATUS_KEY: SKEY, CODE_SECRET: Buffer.alloc(16).toString('base64') }]) {
+    r = await API.makeHandler({ env, fetch, log: m => logs.push(m) })(me(E2));
+    assert.equal(r.status, 503, 'no usable CODE_SECRET: never data on the sign-in alone'); assert.match(JSON.parse(r.body).error, /not set up/);
+  }
+  assert.ok(logs.length >= 2 && logs.every(l => !l.includes(c1.slice(0, 5)) && !l.includes(c2.slice(0, 5)) && !/@/.test(l)), 'codes and emails never logged');
 });
 
 test('my status: new entries, lines for Home and notifications', async () => {
@@ -692,13 +735,13 @@ test('staticwebapp.config.json: Microsoft sign-in only, API for signed-in users,
   const swa = rd('.github/workflows/swa.yml').toString();
   assert.match(swa, /secrets\.AZURE_STATIC_WEB_APPS_API_TOKEN/); assert.match(swa, /if: needs\.gate\.outputs\.ready == 'true'/, 'skipped, not failed, without the secret');
   assert.match(swa, /api_location: api/); assert.match(swa, /sed -i "s\/const V = 'hq-dev'/, 'same cache-name rewrite as Pages');
-  for (const f of ['.status-key', 'records.json', 'status.enc.json']) assert.ok(rd('.gitignore').toString().split(/\r?\n/).includes(f), '.gitignore: ' + f);
+  for (const f of ['.status-key', '.code-secret', '.batch-key', 'codes.csv', 'records.json', 'status.enc.json']) assert.ok(rd('.gitignore').toString().split(/\r?\n/).includes(f), '.gitignore: ' + f);
 });
 
 test('tools/status.mjs: refuses bad records, encrypts what the API opens, shows the key on request', () => {
   const dir = mkdtempSync(join(tmpdir(), 'hq-st-')), w = (f, s) => { writeFileSync(join(dir, f), s); return join(dir, f); };
   const keyFile = join(dir, 'k'), out = join(dir, 'out.json');
-  const run = (...a) => spawnSync(process.execPath, [join(ROOT, 'tools/status.mjs'), '--key-file', keyFile, ...a], { encoding: 'utf8' });
+  const run = (...a) => spawnSync(process.execPath, [join(ROOT, 'tools/status.mjs'), '--key-file', keyFile, '--code-secret-file', join(dir, 'cs'), ...a], { encoding: 'utf8' });
   let r = run('--records', w('ok.json', JSON.stringify(RECS)), '--out', out);
   assert.equal(r.status, 0, r.stderr);
   assert.match(r.stdout, /2 students, 2 entries/);
@@ -706,13 +749,34 @@ test('tools/status.mjs: refuses bad records, encrypts what the API opens, shows 
   assert.equal(Buffer.from(key, 'base64').length, 32, 'new 32-byte key, base64');
   assert.deepEqual(API.open(JSON.parse(readFileSync(out, 'utf8')), key), RECS, 'the API can open it');
   assert.equal(run('--show-key').stdout.trim(), key);
+  assert.equal(readFileSync(keyFile, 'utf8').trim(), key, 'an existing key is never replaced');
   const other = { ...RECS, students: { 'someone@outlook.com': [] } };
   assert.match(run('--records', w('bad.json', JSON.stringify(other))).stderr, /not IISc addresses/);
   const phone = JSON.parse(JSON.stringify(RECS)); phone.students['student1@iisc.ac.in'][0].note = 'call 98450 00000';
   assert.match(run('--records', w('ph.json', JSON.stringify(phone))).stderr, /phone number/);
   assert.notEqual(run('--records', join(dir, 'missing.json')).status, 0);
-  assert.equal(run('--show-key').stdout.trim(), key, 'an existing key is never replaced');
-  if (process.platform !== 'win32') assert.equal(statSync(keyFile).mode & 0o777, 0o600, 'owner-only key file');
+});
+
+test('tools/status.mjs --codes: one code per address for the mail merge, counts only on screen', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'hq-codes-')), sec = join(dir, 'cs');
+  mkdirSync(join(dir, 'status'));
+  writeFileSync(join(dir, 'status', 'records.json'), JSON.stringify(RECS));
+  const roster = join(dir, 'roster.csv');
+  writeFileSync(roster, 'Name,Email ID\nStudent Three,Student3@IISc.ac.in\nStudent One," student1@iisc.ac.in"\nSomeone,someone@outlook.com\nStudent Three again,student3@iisc.ac.in\n');
+  const run = (...a) => spawnSync(process.execPath, [join(ROOT, 'tools/status.mjs'), '--dir', dir, '--key-file', join(dir, 'k'), '--code-secret-file', sec, ...a], { encoding: 'utf8' });
+  let r = run('--codes');
+  assert.equal(r.status, 0, r.stderr);
+  const secret = readFileSync(sec, 'utf8').trim(), csv = () => readFileSync(join(dir, 'status', 'codes.csv'), 'utf8');
+  assert.equal(Buffer.from(secret, 'base64').length, 32, 'new 32-byte code secret');
+  assert.equal(csv(), `email,code\r\nstudent1@iisc.ac.in,${API.codeFor(secret, 'student1@iisc.ac.in')}\r\nstudent2@iisc.ac.in,${API.codeFor(secret, 'student2@iisc.ac.in')}\r\n`, 'every address in the records');
+  r = run('--codes', '--roster', roster);
+  assert.equal(r.status, 0, r.stderr);
+  assert.match(r.stdout, /codes: 3 addresses \(2 from the records, 3 roster rows, 2 duplicates merged, 1 roster rows skipped/);
+  assert.ok(!/[0-9A-HJKMNP-TV-Z]{5}-[0-9A-HJKMNP-TV-Z]{5}/.test(r.stdout + r.stderr) && !/@/.test(r.stdout), 'no codes or addresses on screen');
+  assert.deepEqual(A.parseDelim(csv().trim()).map(x => x.join('|')), ['email|name|code', `student1@iisc.ac.in|Student One|${API.codeFor(secret, 'student1@iisc.ac.in')}`,
+    `student2@iisc.ac.in||${API.codeFor(secret, 'student2@iisc.ac.in')}`, `student3@iisc.ac.in|Student Three|${API.codeFor(secret, 'student3@iisc.ac.in')}`], 'names from the roster, lower case, de-duplicated');
+  assert.equal(run('--show-code-secret').stdout.trim(), secret);
+  if (process.platform !== 'win32') for (const f of [sec, join(dir, 'k'), join(dir, 'status', 'codes.csv')]) assert.equal(statSync(f).mode & 0o777, 0o600, 'owner-only: ' + f);
 });
 
 test('tools/secrets.mjs: created once with mode 0600, never overwritten, warns when others can read it', async () => {
