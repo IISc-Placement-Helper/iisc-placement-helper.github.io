@@ -2,7 +2,7 @@
 // node test.mjs --fix rewrites the CSP and SRI hashes in index.html after editing its CSS, app.js, core.js or vendor/.
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { readFileSync, writeFileSync, existsSync, mkdtempSync } from 'node:fs';
+import { readFileSync, writeFileSync, existsSync, mkdtempSync, statSync, chmodSync } from 'node:fs';
 import { createHash } from 'node:crypto';
 import { spawnSync } from 'node:child_process';
 import { createRequire } from 'node:module';
@@ -711,6 +711,23 @@ test('tools/status.mjs: refuses bad records, encrypts what the API opens, shows 
   const phone = JSON.parse(JSON.stringify(RECS)); phone.students['student1@iisc.ac.in'][0].note = 'call 98450 00000';
   assert.match(run('--records', w('ph.json', JSON.stringify(phone))).stderr, /phone number/);
   assert.notEqual(run('--records', join(dir, 'missing.json')).status, 0);
+  assert.equal(run('--show-key').stdout.trim(), key, 'an existing key is never replaced');
+  if (process.platform !== 'win32') assert.equal(statSync(keyFile).mode & 0o777, 0o600, 'owner-only key file');
+});
+
+test('tools/secrets.mjs: created once with mode 0600, never overwritten, warns when others can read it', async () => {
+  const { secretFile } = await import('./tools/secrets.mjs'), dir = mkdtempSync(join(tmpdir(), 'hq-sec-')), f = join(dir, 's');
+  let made = 0;
+  assert.equal(secretFile(f, () => { made++; return 'one'; }), 'one');
+  assert.equal(secretFile(f, () => { made++; return 'two'; }), 'one', 'kept');
+  assert.equal(made, 1);
+  if (process.platform === 'win32') return; // Windows ignores POSIX modes (see tools/secrets.mjs)
+  assert.equal(statSync(f).mode & 0o777, 0o600);
+  chmodSync(f, 0o644);
+  const warn = console.warn, said = [];
+  console.warn = m => said.push(m);
+  try { secretFile(f, () => 'x'); } finally { console.warn = warn; }
+  assert.match(said.join(' '), /can be read by other users/);
 });
 
 test('real feed (HQ_FEED, local only)', { skip: !process.env.HQ_FEED && 'set HQ_FEED=<feed.json> to run' }, async () => {

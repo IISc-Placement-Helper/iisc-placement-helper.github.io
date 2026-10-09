@@ -5,7 +5,7 @@
 //   node tools/status.mjs --out <file>    only write the encrypted file
 //   node tools/status.mjs --show-key      print STATUS_KEY for the Azure app setting (never paste it anywhere public)
 // --dir <folder>: where status_ingest.py and status/records.json live (default ../_work/hq_public, outside the repo).
-// --records <file>, --key-file <file> (default .status-key, git-ignored, created on first use), --repo owner/name, --python <exe>.
+// --records <file>, --key-file <file> (default .status-key, git-ignored, created on first use, owner-only), --repo owner/name, --python <exe>.
 import { readFileSync, writeFileSync, existsSync, mkdirSync } from 'node:fs';
 import { spawnSync } from 'node:child_process';
 import { createHash, randomBytes } from 'node:crypto';
@@ -13,6 +13,7 @@ import { createRequire } from 'node:module';
 import { join, dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { github } from './release.mjs';
+import { secretFile } from './secrets.mjs';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..'), argv = process.argv.slice(2);
 const opt = n => { const i = argv.indexOf('--' + n); return i >= 0 ? argv[i + 1] : undefined; }, flag = n => argv.includes('--' + n);
@@ -20,13 +21,8 @@ const die = m => { console.error('status: ' + m); process.exit(1); };
 const { seal, open } = createRequire(import.meta.url)('../api/shared/status.js');
 
 const keyFile = resolve(opt('key-file') || join(ROOT, '.status-key'));
-const key = () => {
-  if (!existsSync(keyFile)) {
-    writeFileSync(keyFile, randomBytes(32).toString('base64') + '\n');
-    console.log('New status key saved in ' + keyFile + ' (git-ignored). Back it up, and put it in the Azure app setting STATUS_KEY.');
-  }
-  return readFileSync(keyFile, 'utf8').trim();
-};
+// Owner-only, never overwritten (tools/secrets.mjs).
+const key = () => secretFile(keyFile, () => randomBytes(32).toString('base64'), `New status key saved in ${keyFile} (git-ignored). Back it up, and put it in the Azure app setting STATUS_KEY.`);
 if (flag('show-key')) { console.log(key()); process.exit(0); }
 
 const dir = resolve(opt('dir') || join(ROOT, '..', '_work', 'hq_public'));

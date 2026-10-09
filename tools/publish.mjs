@@ -6,13 +6,14 @@
 // Output: feed.enc.json in the repo root (git-ignored), which `npx serve` serves for local testing.
 // --upload [--repo owner/name]: replace the `feed` release asset and re-run the Pages and Azure workflows (GitHub
 //   REST API; token from GITHUB_TOKEN or the git credential helper; see tools/release.mjs).
-import { readFileSync, writeFileSync, existsSync, mkdtempSync, rmSync } from 'node:fs';
+import { readFileSync, writeFileSync, existsSync, mkdtempSync, rmSync, unlinkSync } from 'node:fs';
 import { spawnSync } from 'node:child_process';
 import { join, dirname, basename } from 'node:path';
 import { tmpdir } from 'node:os';
 import { fileURLToPath } from 'node:url';
 import { sealFeed, openFeed, newBatchKey, TRACKS } from '../core.js';
 import { github } from './release.mjs';
+import { secretFile } from './secrets.mjs';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..'), argv = process.argv.slice(2);
 const opt = n => { const i = argv.indexOf('--' + n); return i >= 0 ? argv[i + 1] : undefined; }, flag = n => argv.includes('--' + n);
@@ -54,13 +55,10 @@ const ck = spawnSync(process.execPath, [check, plain], { stdio: 'inherit' });
 rmSync(tmp, { recursive: true, force: true });
 if (ck.status !== 0) die('privacy check failed (' + basename(check) + '); nothing written');
 
+// .batch-key: owner-only (mode 0600, never overwritten in place; see tools/secrets.mjs). --new-key removes it first.
 const keyFile = join(ROOT, '.batch-key');
-let key = opt('key') || (!flag('new-key') && existsSync(keyFile) ? readFileSync(keyFile, 'utf8').trim() : '');
-if (!key) {
-  key = newBatchKey();
-  writeFileSync(keyFile, key + '\n');
-  console.log('New batch key saved in .batch-key (git-ignored). Back it up: without it you must send everyone a new link.');
-}
+if (!opt('key') && flag('new-key') && existsSync(keyFile)) unlinkSync(keyFile);
+const key = opt('key') || secretFile(keyFile, newBatchKey, 'New batch key saved in .batch-key (git-ignored). Back it up: without it you must send everyone a new link.');
 
 const out = opt('out') || join(ROOT, 'feed.enc.json'), file = await sealFeed(key, feed);
 if (JSON.stringify(await openFeed(key, file)) !== JSON.stringify(feed)) die('round trip failed');
