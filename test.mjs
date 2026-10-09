@@ -776,7 +776,8 @@ test('tools/status.mjs --codes: one code per address for the mail merge, counts 
   assert.deepEqual(A.parseDelim(csv().trim()).map(x => x.join('|')), ['email|name|code', `student1@iisc.ac.in|Student One|${API.codeFor(secret, 'student1@iisc.ac.in')}`,
     `student2@iisc.ac.in||${API.codeFor(secret, 'student2@iisc.ac.in')}`, `student3@iisc.ac.in|Student Three|${API.codeFor(secret, 'student3@iisc.ac.in')}`], 'names from the roster, lower case, de-duplicated');
   assert.equal(run('--show-code-secret').stdout.trim(), secret);
-  if (process.platform !== 'win32') for (const f of [sec, join(dir, 'k'), join(dir, 'status', 'codes.csv')]) assert.equal(statSync(f).mode & 0o777, 0o600, 'owner-only: ' + f);
+  assert.ok(!existsSync(join(dir, 'k')), '--codes does not need the status key');
+  if (process.platform !== 'win32') for (const f of [sec, join(dir, 'status', 'codes.csv')]) assert.equal(statSync(f).mode & 0o777, 0o600, 'owner-only: ' + f);
 });
 
 test('tools/secrets.mjs: created once with mode 0600, never overwritten, warns when others can read it', async () => {
