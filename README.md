@@ -61,6 +61,9 @@ Like a placement portal, but only for you: every company where OCCaP's sheet lis
   opens unlocked. Install the app from that address too if you want alerts.
 - **Sign in** with **Sign in with Microsoft (IISc account)** and your `yourname@iisc.ac.in` account. Other Microsoft
   or GitHub accounts are refused. If Microsoft keeps picking a personal account, use a private window.
+- **Then enter your personal code**, once on each device. It came to your IISc inbox from OCCaP-helper and looks like
+  `ABCDE-12345` (any case; dashes and spaces do not matter). Keep it to yourself. Wrong code or lost the mail? Ask
+  the site admin to resend it.
 - **Upcoming** lists your next test or interview first, with a countdown, then the date, time, mode and venue where
   OCCaP has announced them. **History** lists the rest, most recent first.
 - Each card shows the steps you reached (test shortlist, test, interview shortlist, interview, result) and one
@@ -71,8 +74,9 @@ Like a placement portal, but only for you: every company where OCCaP's sheet lis
 - **New entries** get a badge on the Status tab and a card on Home; **Mark all seen** clears them. Press **Enable
   notifications** to also get a phone or desktop notification. The app checks when you open it, when it comes back
   on screen, and every 10 minutes while it is on screen. There is no push server, so a closed app does not notify you.
-- **Privacy:** only you see your entries. The OCCaP lists are stored encrypted; the site's small server function
-  decrypts them to answer you and sends you nothing about anyone else. **Sign out** removes your saved entries from
+- **Privacy:** only you see your entries: the server answers only someone signed in with your IISc account who also
+  has your personal code. The OCCaP lists are stored encrypted; the site's small server function decrypts them to
+  answer you and sends you nothing about anyone else. **Sign out** removes your saved entries and your code from
   that device. The lists come from the OCCaP sheet: always confirm in the OCCaP mail.
 
 ### Shortlists: how to paste
@@ -119,8 +123,9 @@ backup**, send the file to your other device, and **Import backup** there. Impor
   the shared link. Search engines and outsiders cannot read it; anyone with the link can, and can forward it.
 - **Your data is yours.** It lives on your device and leaves it only encrypted (backup file or your own gist).
   The site has no accounts, no analytics, and loads no third-party scripts or fonts. The one exception is My
-  status: there you sign in with your IISc Microsoft account (Azure keeps the sign-in in a cookie), and a small
-  server function returns your own entries from the OCCaP lists, to you only.
+  status: there you sign in with your IISc Microsoft account (Azure keeps the sign-in in a cookie) and enter the
+  personal code mailed to you, and a small server function returns your own entries from the OCCaP lists, to you
+  only. Your code is kept on your device until you sign out.
 - **Other students' data is never kept.** Shortlist checks keep only your own matches.
 - **Delete everything on this device** (Settings) wipes the app's data, the key and its caches from that device.
 
@@ -157,7 +162,8 @@ Everything below is for whoever maintains the site and its feed.
   Pages workflow copies into the deployed site, so rotating the key leaves nothing decryptable in git history.
 - **My status is the one server-side part** (see "My status" below). Per-student OCCaP entries are never committed
   and never in the feed: they ship as the `status` release asset, AES-256-GCM under a key that only the maintainer
-  and the Azure app setting hold, and the API returns each signed-in student only their own entries.
+  and the Azure app setting hold, and the API returns each student only their own entries, and only with both a
+  Microsoft sign-in and the personal code mailed to that IISc address.
 - "Delete everything on this device" (Settings) removes the stored data, the key, the caches and the service worker.
 
 ## Files
@@ -172,7 +178,9 @@ Everything below is for whoever maintains the site and its feed.
 | `staticwebapp.config.json` | Azure Static Web Apps: routes, sign-in rules, headers (the CSP mirrors `index.html`), API runtime |
 | `tools/status.mjs` | Encrypts the per-student records and uploads them as the `status` release asset (`--refresh` runs the ingest first) |
 | `tools/release.mjs` | GitHub REST helpers shared by the two tools (replace a release asset, start a workflow) |
+| `tools/secrets.mjs` | Creates the local secret files (`.batch-key`, `.status-key`, `.code-secret`) owner-only and never overwrites them |
 | `tools/STATUS_SETUP.md` | Step-by-step Azure setup for My status |
+| `tools/STATUS_CODES.md` | Mailing each student their personal code with a Word + Outlook mail merge |
 | `.github/workflows/swa.yml` | Tests, then deploys the same site plus `api/` to Azure Static Web Apps; skipped until its secret exists |
 | `manifest.webmanifest`, `icons/` | Install metadata and the "HQ" icon |
 | `vendor/` | pdf.js 4.10.38 and qrcode-generator 2.0.4, unmodified; licences in `vendor/LICENSES.txt` |
@@ -241,24 +249,37 @@ Azure address (`STATUS_ORIGIN` in `core.js`) with the batch key in the fragment.
   account and passes the function only `x-ms-client-principal` (base64 JSON: identityProvider, userId, userDetails,
   userRoles), so the function requires `identityProvider === 'aad'` and a `userDetails` that is an `@iisc.ac.in`
   address (trimmed, lower case); anything else gets a 403 with a friendly message.
+- **Why a personal code too.** That provider accepts accounts from any Entra tenant, and `userDetails` comes from a
+  claim the account's own tenant controls, so anyone can make a tenant whose user claims a victim's IISc address
+  ("nOAuth"); nor is it wise to rely on the platform alone to strip a forged `x-ms-client-principal`. So the
+  function also requires the header `x-hq-code`: the first 10 Crockford base32 characters (no I, L, O, U) of
+  HMAC-SHA256(`CODE_SECRET`, `'hq-code-v1|' + email`), shown as `XXXXX-XXXXX`, compared with
+  `crypto.timingSafeEqual` (any case; dashes and spaces ignored; O read as 0, I and L as 1). Missing: 428, wrong:
+  403, both with `need: 'code'`; no `CODE_SECRET`: 503, never a fallback to the sign-in alone. No list of codes
+  exists anywhere: the function derives the expected code on each request. The maintainer mails every student
+  their code once (`node tools/status.mjs --codes`, then `tools/STATUS_CODES.md`).
 - **Data.** `status_ingest.py` (outside the repo) turns OCCaP files into records keyed by lower-case email:
   `{v, updated, students: {email: [item]}, lists, results, schedule}`. `tools/status.mjs` refuses records with
   non-IISc keys or anything phone-like, gzips and encrypts them (AES-256-GCM, 12-byte IV, AAD `hq-status-v1`) with
   the 32-byte key in `.status-key` (git-ignored, created on first use), and uploads the ciphertext as the asset
   `status` of the release `status`.
-- **The function** (`api/shared/status.js`) reads `STATUS_KEY` (base64) and `STATUS_URL` (default: that release
-  asset) from the app settings, fetches and decrypts with a 5-minute in-memory cache (a stale copy beats an error),
+- **The function** (`api/shared/status.js`) reads `STATUS_KEY` and `CODE_SECRET` (32 bytes each, base64) and
+  `STATUS_URL` (default: that release asset) from the app settings, fetches and decrypts with a 5-minute in-memory cache (a stale copy beats an error),
   and answers `{email, updated, items: [{id, kind, company, role, list, position, note, first_seen,
   withdrawn_from_list?}], lists, results, schedule}`: the caller's own items, plus company-level facts every student
   sees on the OCCaP sheet anyway (which lists exist, which companies have published results, test and interview
   schedules). `kind` is test_shortlist, interview_shortlist, waitlist, additional_shortlist, selected or
   registration_shortlist; `id` is a hash of (kind, company, role, list), so the app can tell new items. It never
-  logs an email address or anything from the records.
+  logs an email address, a code or anything from the records.
+- **Local secrets.** `.batch-key`, `.status-key` and `.code-secret` are git-ignored and created by the tools with
+  mode 0600 and an exclusive create (never overwritten; on Linux and macOS an existing file readable by others gets
+  a warning). Windows ignores those modes, so keep the checkout in a private, unshared folder.
 - **Runtime.** Node 22 (`platform.apiRuntime`), Azure Functions programming model v3 (`function.json` plus a
   CommonJS handler), chosen because it needs no npm packages, so the workflow deploys `api/` as is
   (`skip_api_build`). Moving to the v4 model later only changes `api/status/index.js`.
 - **The app** asks `/.auth/me` who is signed in (skipped on github.io), then fetches `/api/status` on start, when it
-  comes back on screen and every 10 minutes while visible. New item ids (against a seen list in localStorage under
+  comes back on screen and every 10 minutes while visible, sending the personal code the student typed once on
+  that device (localStorage, under the SHA-256 of the email; a wrong one is dropped; Sign out removes it). New item ids (against a seen list in localStorage under
   the SHA-256 of the email) give the tab badge, the Home card and, if the student enabled them, a notification
   through the service worker. `statusCards` in `core.js` builds one card per company and its outcome; dates come
   from the OCCaP schedule sheets, else the feed's test/interview fields, joined by normalised company name.

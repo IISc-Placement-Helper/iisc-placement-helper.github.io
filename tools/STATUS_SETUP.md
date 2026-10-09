@@ -32,26 +32,40 @@ machine that holds the OCCaP files.
 2. GitHub: this repository, **Settings**, **Secrets and variables**, **Actions**, **New repository secret**:
    name `AZURE_STATIC_WEB_APPS_API_TOKEN`, value the token. Never put the token anywhere else.
 
-## 4. Give the API its key
+## 4. Give the API its two secrets
 
-The per-student lists are uploaded encrypted; the API needs the same 32-byte key to read them.
+The API needs two 32-byte secrets, each kept on your machine in a git-ignored file that the tools create on first
+use:
 
-1. On your machine, in the repository folder, print the key (it is created on first use and kept in `.status-key`,
-   which git ignores):
+- **`STATUS_KEY`** (`.status-key`) decrypts the uploaded lists.
+- **`CODE_SECRET`** (`.code-secret`) derives each student's personal code. The Free plan's Microsoft sign-in accepts
+  accounts from any organisation, and the email it reports can be set by whoever runs that organisation, so a sign-in
+  alone does not prove someone owns an `@iisc.ac.in` address. The personal code, mailed to that IISc inbox, does.
+  Without `CODE_SECRET` the API refuses everyone ("not set up"); it never falls back to the sign-in alone.
+
+1. On your machine, in the repository folder, print each value:
 
    ```sh
    node tools/status.mjs --show-key
+   node tools/status.mjs --show-code-secret
    ```
 
 2. Azure portal, the Static Web App, **Settings**, **Environment variables** (called *Configuration* or
    *Application settings* on some portal versions), environment **Production**, **Add**:
-   - `STATUS_KEY` = the printed value, exactly.
+   - `STATUS_KEY` = the first printed value, exactly.
+   - `CODE_SECRET` = the second printed value, exactly.
    - Optional `STATUS_URL`: only if the encrypted file lives somewhere other than the default
      `https://github.com/IISc-Placement-Helper/iisc-placement-helper.github.io/releases/download/status/status`.
 3. **Apply** / **Save**.
 
-Keep `.status-key` backed up somewhere private (a password manager). Never paste the key in a chat, an issue, a
-commit or a screenshot. Anyone with the key and the public `status` file can read every student's entries.
+Keep `.status-key` and `.code-secret` (and `.batch-key`) backed up somewhere private, such as a password manager.
+Never paste them in a chat, an issue, a commit or a screenshot. With the key and the public `status` file, anyone
+can read every student's entries; with the code secret, anyone can make every student's code.
+
+**File permissions.** The tools create these files readable by your account only (mode 0600, and never overwrite an
+existing one); on Linux and macOS they warn if an existing file is readable by others. Windows ignores those modes:
+keep the repository in a private folder of your own account, not in a shared folder or a synced folder that is
+shared with anyone.
 
 ## 5. Deploy
 
@@ -80,20 +94,34 @@ It runs the ingest (`../_work/hq_public/status_ingest.py`; on screen you see cou
 encrypts them with `.status-key` and uploads the `status` release asset. If the records have not changed since the
 last upload it says so and stops; add `--force` to upload anyway (for example after changing the key).
 
-## 8. Test
+## 8. Send each student their personal code
+
+```sh
+node tools/status.mjs --codes                       # every address in the records
+node tools/status.mjs --codes --roster batch.csv    # plus a roster of addresses (and names)
+```
+
+This writes `_work/hq_public/status/codes.csv` (`email,code`, plus `name` when the roster has names) and prints
+counts only. Mail each student their code with an Outlook mail merge: follow `tools/STATUS_CODES.md`. Codes do not
+change when the lists change, so this is a one-time mailing (plus late additions).
+
+## 9. Test
 
 1. On the GitHub Pages site, open the **Status** tab and press **Open My status**: the Azure address opens,
    unlocked (the batch key travels in the link fragment).
-2. **Sign in with Microsoft (IISc account)** with an `@iisc.ac.in` account: your cards appear. Press **Enable
-   notifications** if you want alerts.
+2. **Sign in with Microsoft (IISc account)** with an `@iisc.ac.in` account, then enter that account's personal code
+   (the merge's test mail to yourself has yours): your cards appear. Press **Enable notifications** if you want alerts.
 3. Checks:
    - A personal Microsoft account gets "My status works only with your IISc Microsoft account".
+   - A wrong code gets "That code does not match your IISc account", and nothing else.
    - `https://<name>.azurestaticapps.net/.auth/login/github` answers 404.
    - `https://<name>.azurestaticapps.net/api/status` in a private window sends you to the Microsoft sign-in.
 
-Troubleshooting: "My status is not set up yet" means `STATUS_KEY` is missing. "Could not load the latest OCCaP
-lists" means the `status` release asset is missing or was encrypted with another key: compare
-`node tools/status.mjs --show-key` with the app setting, then run `node tools/status.mjs --refresh --force`.
+Troubleshooting: "My status is not set up yet" means `STATUS_KEY` or `CODE_SECRET` is missing or not 32 bytes.
+"Could not load the latest OCCaP lists" means the `status` release asset is missing or was encrypted with another
+key: compare `node tools/status.mjs --show-key` with the app setting, then run
+`node tools/status.mjs --refresh --force`. Every code refused: compare `node tools/status.mjs --show-code-secret`
+with `CODE_SECRET`.
 
 ## Refreshing the data (every time OCCaP updates the sheet)
 
@@ -106,10 +134,16 @@ That is all: no redeploy. Students see the new entries within about 5 minutes of
 file for 5 minutes), the next time their app checks. The ingest keeps the date each entry first appeared, marks
 entries that disappear from a re-supplied list as withdrawn instead of deleting them, and writes malformed email
 cells (typos such as `@isc.ac.in`) to `_work/hq_public/status/ingest_report.txt` so you can ask OCCaP to fix them.
-That report and `records.json` name students: keep them on your machine.
+That report, `records.json` and `codes.csv` name students: keep them on your machine. A student who appears on a
+list for the first time needs a code too: run `node tools/status.mjs --codes` again and mail just the new rows.
 
-## Rotating the key
+## Rotating the key or the code secret
 
-Delete `.status-key`, run `node tools/status.mjs --refresh --force` (a new key is created and the file re-uploaded),
-then put the new `node tools/status.mjs --show-key` value in `STATUS_KEY`. My status shows an error between the two
-steps, so do them together.
+Key: delete `.status-key`, run `node tools/status.mjs --refresh --force` (a new key is created and the file
+re-uploaded), then put the new `node tools/status.mjs --show-key` value in `STATUS_KEY`. My status shows an error
+between the two steps, so do them together.
+
+Code secret (only if it may have leaked, since it changes every student's code): delete `.code-secret`, run
+`node tools/status.mjs --codes` (a new secret is created), put the new `--show-code-secret` value in `CODE_SECRET`,
+and mail everyone their new code. One student's code cannot be changed on its own; a student who lost theirs just
+gets the same code again.
