@@ -443,11 +443,11 @@ addEventListener('focus', poll);
 document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') { poll(); stRefresh(); } });
 
 const checked = async token => { const gc = C.gistClient(token); await gc.check(); return gc; };
-async function joinSync(code, id, token) {
+async function joinSync(code, id, token, gc) {
   const c = C.unb32(code || '');
   if (c.length !== 16) throw new Error('that is not a sync code (26 letters and digits)');
   if (!/^\w+$/.test(id || '')) throw new Error('that is not a gist id');
-  const r = await C.gistSync(await checked(token), id, '', await C.syncKey(c), S, false); // fails on a wrong code or id
+  const r = await C.gistSync(gc || await checked(token), id, '', await C.syncKey(c), S, false); // fails on a wrong code or id
   await setSync({ code: C.b32(c), id, token });
   ETAG = r.etag;
   absorb(r.state);
@@ -645,12 +645,18 @@ async function unlock() {
   show(ls('view') || 'home');
   return true;
 }
-// A pairing link from another device: #k=<batch>&sync=<code>&g=<gist id>&t=<token>.
+// A pairing link from another device: #k=<batch>&sync=<code>&g=<gist id>&t=<token>. Anyone can craft such a link
+// with their own token and gist, so a link never replaces existing sync, and before joining the student sees which
+// GitHub account would receive the data.
 async function joinPrompt(p) {
   const code = p.get('sync');
   if (!code || SYNC && SYNC.code === C.b32(C.unb32(code))) return;
-  if (!confirm('Join sync with your other device? Its data and this device\'s are merged.')) return;
-  try { await joinSync(code, p.get('g'), p.get('t')); } catch (e) { alert('Could not join: ' + e.message + '.'); }
+  if (SYNC) { alert('This device already syncs, so the sync part of that link was ignored. To switch, stop syncing in Settings first, then join from there.'); return; }
+  try {
+    const gc = C.gistClient(p.get('t') || ''), login = await gc.check();
+    if (!confirm(`Join sync with the GitHub account "${login}"?\n\nYour statuses, notes, CV text and identifiers would be stored, encrypted, in a secret gist (${p.get('g')}) of that account, and merged with what it holds.\n\nContinue only if "${login}" is your own GitHub account and you opened this link from your own device.`)) return;
+    await joinSync(code, p.get('g'), '', gc);
+  } catch (e) { alert('Could not join: ' + e.message + '.'); return; }
   show('settings');
 }
 (async () => {

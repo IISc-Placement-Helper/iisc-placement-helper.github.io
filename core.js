@@ -529,12 +529,16 @@ export function gistClient(token, fetch = globalThis.fetch, now = Date.now) {
   }
   const etagOf = r => r.headers.get('etag') || '';
   return {
-    // Refuses a token that cannot write gists, or that can do more: a leaked broad token is worse.
+    // Refuses a token that cannot write gists, or that can do more: a leaked broad token is worse. Returns the
+    // GitHub login that owns the token, so a pairing link can show whose account the data would go to.
     async check() {
-      const sc = ((await call('/user')).headers.get('x-oauth-scopes') || '').split(',').map(s => s.trim()).filter(Boolean);
+      const r = await call('/user'), sc = (r.headers.get('x-oauth-scopes') || '').split(',').map(s => s.trim()).filter(Boolean);
       if (!sc.includes('gist')) throw fail('this token cannot write gists: create a classic token with only the gist scope');
       const broad = sc.filter(s => /repo|admin|workflow|user/.test(s));
       if (broad.length) throw fail(`this token can also use ${broad.join(', ')}: create one with only the gist scope`);
+      const login = String((await r.json().catch(() => ({}))).login || '');
+      if (!/^[A-Za-z0-9-]{1,39}$/.test(login)) throw fail('GitHub did not say which account owns this token');
+      return login;
     },
     async create(content) {
       const r = await call('/gists', 'POST', { public: false, description: 'Placement HQ sync (encrypted)', files: { [GIST_FILE]: { content } } });

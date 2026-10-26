@@ -419,6 +419,9 @@ test('gist client: token scope check, create, pull 200/304, truncated file via r
   await assert.rejects(A.gistClient('ghp_test', fakeGitHub({ scopes: 'gist, repo' }).fetch).check(), /also use repo/, 'names the broad scope');
   await assert.rejects(A.gistClient('ghp_test', fakeGitHub({ scopes: '' }).fetch).check(), /only the gist scope/, 'fine-grained or scopeless token');
   await assert.rejects(A.gistClient('revoked', fakeGitHub().fetch).check(), e => e.status === 401);
+  assert.equal(await A.gistClient('ghp_test', fakeGitHub({ scopes: 'gist' }).fetch).check(), 'someone', 'check names the account that owns the token');
+  const noLogin = async (url, o) => new Response(JSON.stringify({}), { status: 200, headers: { 'x-oauth-scopes': 'gist' } });
+  await assert.rejects(A.gistClient('ghp_test', noLogin).check(), /which account/, 'a /user answer without a login is refused');
 
   const gh = fakeGitHub(), gc = A.gistClient('ghp_test', gh.fetch), key = await A.syncKey(A.rnd(16));
   const st = { apps: { 'acme::HPC Eng': { status: 'offer', notes: 'private note', u: 1, d: 'a' } }, dsa: {}, tomb: {} };

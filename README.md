@@ -112,7 +112,9 @@ stays on your devices.
 3. From then on, changes sync on their own: when you open or return to the app, and every minute while it is on
    screen.
 
-Keep the QR to yourself: it contains your token and sync code. Token expired or revoked? The app says so; paste a new one and press **Save token**. **Stop syncing on this device** forgets the token and code on that device; **Delete synced copy**
+Keep the QR to yourself: it contains your token and sync code. When a pairing link or QR is opened, the app first
+shows which GitHub account would receive your data; continue only if it is your own account. A link never replaces
+sync that is already set up on a device: stop syncing in Settings first. Token expired or revoked? The app says so; paste a new one and press **Save token**. **Stop syncing on this device** forgets the token and code on that device; **Delete synced copy**
 removes the gist.
 
 **No GitHub account, or prefer not to?** Settings → *Encrypted backup*: choose a passphrase, **Export encrypted
@@ -236,6 +238,9 @@ only to `api.github.com` (plus `gist.githubusercontent.com` when the file is ove
   requests left waits until `x-ratelimit-reset`.
 - **Pairing**: the QR in Settings opens `#k=<batch>&sync=<code>&g=<gist id>&t=<token>`; the fragment never
   reaches a server and is removed from the address bar. The QR is a credential: it is for the student's own devices.
+  Because anyone can craft such a link with their own token and gist, opening one never replaces existing sync on
+  that device, and before joining the app checks the token (`/user`) and asks the student to confirm the GitHub
+  login that owns it.
 
 ## My status (Azure Static Web Apps)
 
