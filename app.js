@@ -2,7 +2,7 @@
 import * as C from './core.js';
 
 const $ = s => document.querySelector(s), $$ = s => [...document.querySelectorAll(s)], esc = C.esc, KIND = C.KIND;
-const VIEWS = ['home', 'status', 'companies', 'jds', 'calendar', 'shortlists', 'cv', 'dsa', 'settings'];
+const VIEWS = ['home', 'status', 'companies', 'pay', 'jds', 'calendar', 'shortlists', 'cv', 'dsa', 'settings'];
 const LABEL = { not_applied: 'Not applied', applied: 'Applied', shortlisted: 'Shortlisted', test_scheduled: 'Test scheduled', test_done: 'Test done',
   interview_scheduled: 'Interview scheduled', interview_done: 'Interview done', offer: 'Offer', rejected: 'Rejected', withdrawn: 'Withdrawn', not_eligible: 'Not eligible' };
 const ls =(k, v) => { try { if (v === undefined) return localStorage.getItem('hq:' + k); if (v === null) localStorage.removeItem('hq:' + k); else localStorage.setItem('hq:' + k, v); } catch { return null; } };
@@ -145,6 +145,30 @@ function roleBox(c, r) {
     <div class="two"><label>Interview date <input type="date" ${a('interview_date')} value="${v('interview_date')}"></label><label>Interview time <input type="time" ${a('interview_time')} value="${v('interview_time')}"></label></div>
     <label>Notes <textarea rows="2" ${a('notes')}>${v('notes')}</textarea></label></fieldset>`;
 }
+
+// Pay per role for every company of the season (feed.comp). Phase comes from the company's latest known date.
+const NOHIRE = /no hiring|not hiring|no direct|not participating/i;
+const PAYC = [['base', 'Base / fixed'], ['variable', 'Variable / bonus'], ['joining', 'Joining'], ['relocation', 'Relocation'],
+  ['stock', 'Stock / RSU'], ['retention', 'Retention'], ['retirals', 'PF / retirals'], ['other', 'Other']];
+V.pay = () => {
+  const q = $('#pq').value.trim().toLowerCase(), ph = $('#pph').value, k = { ctc: 'ctc_l', base: 'base_l' }[$('#psort').value], disc = $('#pdisc').checked, t = today();
+  const phase = c => NOHIRE.test(c.hs || '') ? 'Not hiring' : !c.d ? 'No dates yet' : c.d >= t ? 'Current' : 'Earlier';
+  const xs = (FEED.comp || []).flatMap(c => (c.roles.length ? c.roles : [{ role: '' }]).map(r => ({ c, r, p: phase(c) })))
+    .filter(x => (!ph || x.p === ph) && (!disc || x.r.ctc_l != null || x.r.base_l != null)
+      && (!q || [x.c.company, x.c.hs, ...Object.values(x.r)].join(' ').toLowerCase().includes(q)));
+  if (k) xs.sort((a, b) => (b.r[k] ?? -1) - (a.r[k] ?? -1)); // stable: ties keep company order
+  const v = xs.map(x => x.r.ctc_l).filter(n => n != null).sort((a, b) => a - b), n = v.length;
+  $('#pay-n').textContent = `${new Set(xs.map(x => x.c.slug)).size} companies · ${xs.filter(x => x.r.role).length} roles · ${n} with a CTC`
+    + (n ? ` · median ${((v[(n - 1) >> 1] + v[n >> 1]) / 2).toFixed(2)} L` : '');
+  const td = (l, s) => s == null || s === '' ? `<td class="e" data-l="${l}">–</td>` : `<td data-l="${l}">${esc(s)}</td>`;
+  $('#pay-list').innerHTML = xs.length ? `<table class="pay"><thead><tr><th>Company</th><th>Role</th><th>CTC</th>${PAYC.map(([, l]) => `<th>${l}</th>`).join('')}<th>Notes</th></tr></thead><tbody>${
+    xs.map(({ c, r, p }) => `<tr><td class="co">${esc(c.company)} ${chip(p, p === 'Current' ? 'up' : p === 'Not hiring' ? 'no' : '')}${c.hs ? `<small>OCCaP list: ${esc(c.hs)}</small>` : ''}</td>`
+      + `<td>${r.role ? esc(r.role) : '<span class="mu">No role posted yet</span>'}${r.degree ? `<small>${esc(r.degree)}</small>` : ''}</td>`
+      + `<td class="n" data-l="CTC"><b>${r.ctc ? esc(r.ctc) : '<span class="mu">Not disclosed</span>'}</b>${r.first_year ? `<small>1st year: ${esc(r.first_year)}</small>` : ''}</td>`
+      + PAYC.map(([f, l]) => td(l, r[f])).join('')
+      + `<td class="nt${r.notes || r.source ? '' : ' e'}" data-l="Notes">${esc(r.notes || '')}${r.source ? ` <span class="mu">(${esc(r.source)})</span>` : ''}</td></tr>`).join('')}</tbody></table>`
+    : '<p class="mu">No rows match.</p>';
+};
 
 // The full text of every JD/JAF file; bodies fill in when opened, and only the first 40 matches show until "Show all".
 V.jds = () => {
@@ -577,6 +601,7 @@ document.addEventListener('change', e => {
     return;
   }
   if (t.id === 'trk' || t.id === 'mine') V.companies();
+  else if (t.id === 'pph' || t.id === 'psort' || t.id === 'pdisc') V.pay();
   else if (t.id === 'jdc') V.jds();
   else if (t.id === 'calMine') V.calendar();
   else if (t.id === 'homeMine') { ls('homeAll', t.checked ? null : '1'); V.home(); }
@@ -591,7 +616,7 @@ document.addEventListener('change', e => {
 });
 let debT = 0;
 document.addEventListener('input', e => {
-  const f = { q: V.companies, jdq: V.jds, dq: V.dsa, cvq: scoreCv }[e.target.id];
+  const f = { q: V.companies, pq: V.pay, jdq: V.jds, dq: V.dsa, cvq: scoreCv }[e.target.id];
   if (f) { clearTimeout(debT); debT = setTimeout(f, 150); }
 });
 // Company cards and JD texts fill in when opened; the QR is drawn when shown.

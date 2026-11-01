@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'sha256-BH5+Bxk8qi3AX8ekaDJlJ7uZFUpmt9zkuisAIlMITSA='; style-src 'sha256-N8lW4WvU5b593306xzX9VvvXIxMf4zvFxouMEQTRt2I='; img-src 'self' data:; connect-src 'self' https://api.github.com https://gist.githubusercontent.com; worker-src 'self' blob:; object-src 'none'; base-uri 'none'; form-action 'none'">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'sha256-BH5+Bxk8qi3AX8ekaDJlJ7uZFUpmt9zkuisAIlMITSA='; style-src 'sha256-VEKWxquPYY5XkZeaDGlbkZ3IZJnc2yB21nISKGkWRY4='; img-src 'self' data:; connect-src 'self' https://api.github.com https://gist.githubusercontent.com; worker-src 'self' blob:; object-src 'none'; base-uri 'none'; form-action 'none'">
 <meta name="referrer" content="no-referrer">
 <meta name="color-scheme" content="light dark">
 <meta name="theme-color" content="#f4f5f7" media="(prefers-color-scheme: light)">
@@ -96,15 +96,25 @@ a.btn{text-decoration:none}.btn.pri{background:var(--acc);color:var(--on)}
 .steps li+li::before{content:"›";display:inline-block;padding:0 6px;color:var(--mu)}
 .steps .done{color:var(--fg)}.steps .next{color:var(--acc);font-weight:600}.steps .wait{color:var(--warn)}.steps .no{text-decoration:line-through}
 #v-status h3{margin:20px 0 8px}
+nav{overflow-x:auto;scrollbar-width:none}
+.tw{overflow:auto;max-height:78vh;border:1px solid var(--line);border-radius:12px;background:var(--card)}
+table.pay{border-collapse:collapse;width:100%;font-size:.88rem}
+.pay th{position:sticky;top:0;z-index:1;background:var(--chip);text-align:left;font-size:.75rem;text-transform:uppercase;letter-spacing:.04em;color:var(--mu);padding:8px;white-space:nowrap}
+.pay th:first-child{left:0;z-index:2}
+.pay td{padding:7px 8px;border-top:1px solid var(--line);vertical-align:top;min-width:84px;max-width:220px}
+.pay td.co{position:sticky;left:0;background:var(--card);min-width:140px;font-weight:600}
+.pay td.n{min-width:120px;font-variant-numeric:tabular-nums}.pay td.nt{min-width:240px;max-width:320px;font-size:.82rem}
+.pay small{display:block;color:var(--mu);font-weight:400;font-size:.78rem}
+@media (max-width:700px){.tw{max-height:none;overflow:visible;border:0;background:none}.pay thead{display:none}.pay,.pay tbody,.pay tr,.pay td{display:block;min-width:0;max-width:none}.pay tr{background:var(--card);border:1px solid var(--line);border-radius:12px;margin:0 0 10px;padding:8px 12px}.pay td{border:0;padding:2px 0}.pay td.co{position:static;background:none}.pay td.n small{display:inline;margin-left:8px}.pay td[data-l]::before{content:attr(data-l) ": ";color:var(--mu)}.pay td.e{display:none}}
 [hidden]{display:none!important}
 </style>
 <script type="importmap">{"imports":{},"integrity":{"./core.js":"sha384-eVJBYp4V4MdtHdYdkipakVz4BsGPcTNndW+FaT8SO6jhctlJ8BZwaZsjPHdh/bgM","./vendor/pdf.min.mjs":"sha384-+0ti2moQlmLN7WZHE2RHIf5lV8hHxhxEalN0il3YZceG26fUPyOkR0hp9daxk1i7","./vendor/qrcode.mjs":"sha384-xHtsZTi0cOhTiha4kloGDUR5e5A8ixkKsF1Mmpqq3tkDpAhkA4YOKIDua/Tc0Ecd"}}</script>
 <link rel="modulepreload" href="core.js">
-<script type="module" src="app.js" integrity="sha384-N80+7P2zESZyWgSTSXXrzWIneEfJtYqd67DBZgIWP6VJIp0F2N2eR8n3EfpijzHR"></script>
+<script type="module" src="app.js" integrity="sha384-UoBhQ6ZoZAFmr9P8lrpbkgjGvF9KNmhSKeYM34XiR8KwBV5kOHvIJz7TIPjRrCL9"></script>
 </head>
 <body>
 <header class="top"><h1>Placement HQ</h1><span id="upd" class="mu"></span></header>
-<nav id="nav" aria-label="Sections" hidden><button data-v="home">Home</button><button data-v="status" aria-label="My status">Status<span id="stb" class="badge" aria-hidden="true" hidden></span></button><button data-v="companies">Companies</button><button data-v="jds">JDs</button><button data-v="calendar">Calendar</button><button data-v="shortlists">Shortlists</button><button data-v="cv">CV</button><button data-v="dsa">DSA</button><button data-v="settings">Settings</button></nav>
+<nav id="nav" aria-label="Sections" hidden><button data-v="home">Home</button><button data-v="status" aria-label="My status">Status<span id="stb" class="badge" aria-hidden="true" hidden></span></button><button data-v="companies">Companies</button><button data-v="pay">CTC</button><button data-v="jds">JDs</button><button data-v="calendar">Calendar</button><button data-v="shortlists">Shortlists</button><button data-v="cv">CV</button><button data-v="dsa">DSA</button><button data-v="settings">Settings</button></nav>
 <main>
 <p id="boot" class="mu">Opening…</p>
 <noscript><p>Placement HQ needs JavaScript.</p></noscript>
@@ -124,6 +134,13 @@ a.btn{text-decoration:none}.btn.pri{background:var(--acc);color:var(--on)}
 <div class="head"><h2 id="h-co">Companies</h2><span id="co-n" class="mu"></span></div>
 <div class="bar"><label>Search <input id="q" type="search" autocomplete="off"></label><label>Track <select id="trk"><option value="">All tracks</option><option>HPC</option><option>AIML</option><option>SW</option><option>DS</option><option>HARDWARE</option><option>EMBEDDED</option><option>MECH</option><option>OTHER</option></select></label><label class="ck"><input id="mine" type="checkbox"> My roles</label></div>
 <div id="co-list"></div>
+</section>
+
+<section id="v-pay" hidden aria-labelledby="h-pay">
+<div class="head"><h2 id="h-pay">CTC and pay</h2><span id="pay-n" class="mu" role="status"></span></div>
+<p class="mu">Every company of the season so far (OCCaP's company list, every JAF and OCCaP mail), one row per role. Amounts in lakhs (L) a year for M.Tech unless the row says otherwise; one-time items say so. Current: a deadline, test or interview today or later. Earlier: every known date has passed. Always confirm in the JAF.</p>
+<div class="bar"><label>Search <input id="pq" type="search" autocomplete="off"></label><label>Phase <select id="pph"><option value="">All phases</option><option>Current</option><option>Earlier</option><option>No dates yet</option><option>Not hiring</option></select></label><label>Sort <select id="psort"><option value="">Company A–Z</option><option value="ctc">CTC, high to low</option><option value="base">Base, high to low</option></select></label><label class="ck"><input id="pdisc" type="checkbox"> Pay disclosed only</label></div>
+<div id="pay-list" class="tw"></div>
 </section>
 
 <section id="v-jds" hidden aria-labelledby="h-jd">
